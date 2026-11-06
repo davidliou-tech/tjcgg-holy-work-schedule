@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Schedule Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary:       #4f46e5;
+      --primary-hover: #4338ca;
+      --primary-light: #e0e7ff;
+      --bg:            #f8fafc;
+      --surface:       #ffffff;
+      --text:          #0f172a;
+      --text-muted:    #64748b;
+      --border:        #e2e8f0;
+      --success:       #16a34a;
+      --success-light: #f0fdf4;
+      --danger:        #dc2626;
+      --danger-light:  #fef2f2;
+      --warning:       #d97706;
+      --warning-light: #fffbeb;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      font-size: 13px; line-height: 1.5; padding: 12px;
+      display: flex; flex-direction: column; height: 100vh; overflow-x: hidden;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .container { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+    .status-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 10px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm);
+      flex-shrink: 0;
+    }
+    .status-indicator { display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 11px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); transition: background .3s; }
+    .status-dot.synced { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .status-dot.loading { background: var(--primary); animation: pulse 1.2s infinite; }
+    .status-dot.error   { background: var(--danger); }
+    @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+    
+    .tabs {
+      display: flex; gap: 4px; background: var(--border);
+      padding: 4px; border-radius: var(--radius); flex-shrink: 0;
+    }
+    .tab-btn {
+      flex: 1; padding: 6px; text-align: center; background: transparent;
+      border: none; border-radius: 4px; font-size: 12px; font-weight: 600;
+      color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+    }
+    .tab-btn.active { background: var(--surface); color: var(--primary); box-shadow: var(--shadow-sm); }
+    
+    .context-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow-sm);
+      display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
+    }
+    .context-title {
+      font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+      border-bottom: 1px solid var(--border); padding-bottom: 6px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .context-row { display: flex; justify-content: space-between; font-size: 12px; }
+    .context-label { color: var(--text-muted); }
+    .context-value { font-weight: 500; text-align: right; max-width: 175px; word-break: break-word; }
+    .context-value.highlight { color: var(--primary); font-weight: 600; }
+    .selector-section { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+    .selector-label { font-weight: 600; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+    select {
+      width: 100%; padding: 8px 12px; border-radius: var(--radius);
+      border: 1px solid var(--border); background: var(--surface);
+      font-family: inherit; font-size: 13px; color: var(--text);
+      cursor: pointer; outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+    .workers-section { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+    .section-header   { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .section-title    { font-weight: 600; font-size: 13px; }
+    .badge            { font-size: 11px; padding: 2px 8px; border-radius: 9999px; font-weight: 600; }
+    .badge-primary    { background: var(--primary-light); color: var(--primary); }
+    .workers-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; padding-right: 2px; }
+    .worker-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; transition: all .2s ease; user-select: none; box-shadow: var(--shadow-sm); flex-shrink: 0;
+    }
+    .worker-card:hover { border-color: var(--primary); background: var(--primary-light); transform: translateY(-1px); }
+    .worker-name { font-weight: 500; }
+    .worker-card:hover .worker-name { color: var(--primary-hover); }
+    .worker-action { color: var(--text-muted); font-size: 16px; font-weight: bold; transition: color .2s; }
+    .worker-card:hover .worker-action { color: var(--primary); }
+    .collapse-header {
+      background: none; border: none; text-align: left; font-family: inherit; width: 100%;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; font-weight: 600; color: var(--text-muted); cursor: pointer;
+      border-top: 1px solid var(--border); margin-top: 8px; flex-shrink: 0;
+    }
+    .collapse-icon { font-size: 10px; transition: transform .2s; }
+    .collapse-icon.open { transform: rotate(90deg); }
+    .collapse-content { display: none; flex-direction: column; gap: 6px; padding-bottom: 12px; }
+    .collapse-content.show { display: flex; }
+    .conflict-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; opacity: .85; flex-shrink: 0;
+    }
+    .conflict-worker { font-weight: 500; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
+    .conflict-reason { font-size: 11px; font-weight: 500; }
+    .reason-assigned    { color: var(--warning); background: var(--warning-light); padding: 1px 6px; border-radius: 4px; }
+    .reason-unavailable { color: var(--danger);  background: var(--danger-light);  padding: 1px 6px; border-radius: 4px; }
+    .reason-choir { color: #6d28d9; background: #ede9fe; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .reason-buffer { color: #4338ca; background: #e0e7ff; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .reason-cooking { color: #c2410c; background: #ffedd5; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .reason-essc-unavail { color: #be123c; background: #ffe4e6; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 24px; background: var(--surface);
+      border: 1px dashed var(--border); border-radius: var(--radius);
+      color: var(--text-muted); gap: 8px; flex: 1; min-height: 100px;
+    }
+    .empty-icon { font-size: 24px; }
+    .empty-text { font-size: 12px; font-weight: 500; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 8px 12px; border-radius: var(--radius); font-family: inherit;
+      font-size: 12px; font-weight: 500; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      transition: all .2s; gap: 6px;
+    }
+    .btn:hover { background: var(--bg); border-color: #cbd5e1; }
+    .assigning-spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(0,0,0,.1); border-radius: 50%;
+      border-top-color: var(--primary); animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    .stat-count {
+      font-weight: bold; background: var(--primary-light); color: var(--primary);
+      padding: 2px 8px; border-radius: 12px; font-size: 11px; min-width: 24px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="status-bar">
+      <div class="status-indicator">
+        <div id="statusDot" class="status-dot"></div>
+        <span id="statusText">Initializing...</span>
+      </div>
+      <button class="btn" title="Force Refresh" onclick="manualRefresh(true)">🔄</button>
+    </div>
+
+    <!-- Double Booking Warning Banner -->
+    <div id="doubleBookingWarning" class="empty-state"
+         style="display:none; background:var(--warning-light); border-color:var(--warning);
+                color:var(--warning); padding:10px; flex:none; flex-direction:row; gap:10px;">
+      <span style="font-size:16px;">⚠️</span>
+      <span id="doubleBookingWarningText" class="empty-text" style="font-size:11px; text-align:left;"></span>
+    </div>
+
+    <!-- Team Selector -->
+    <div class="selector-section">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <label class="selector-label" for="teamSelect">Select Scheduling Team</label>
+        <div style="display: flex; gap: 8px;">
+          <a href="#" id="setupLink" style="display: none; font-size: 11px; font-weight: 500; color: var(--primary); text-decoration: none;" onclick="google.script.run.showSetupWizard(); return false;">Setup</a>
+          <a href="#" id="refreshRostersBtn" style="font-size: 11px; font-weight: 500; color: var(--text-muted); text-decoration: none;" onclick="doRefreshRosters(); return false;">Refresh Rosters</a>
+        </div>
+      </div>
+      <select id="teamSelect" onchange="onTeamChanged()">
+        <option value="">Loading teams...</option>
+      </select>
+    </div>
+
+    <!-- Tabs Navigation -->
+    <div class="tabs">
+      <button id="tabAssign" class="tab-btn active" onclick="switchTab('assign')">Assign</button>
+      <button id="tabStats" class="tab-btn" onclick="switchTab('stats')">Load Balance</button>
+    </div>
+
+    <!-- VIEW 1: ASSIGNMENT TAB -->
+    <div id="assignView" style="display:flex; flex-direction:column; gap:12px; flex:1; min-height:0;">
+      <div id="contextCard" class="context-card" style="display:none;">
+        <div class="context-title">
+          <span>📅 Selection Context</span>
+          <span id="cellAddress" style="font-size:11px; text-transform:none; color:var(--primary);">—</span>
+        </div>
+        <div class="context-row">
+          <span class="context-label">Target Date:</span>
+          <span id="targetDate" class="context-value">—</span>
+        </div>
+        <div class="context-row">
+          <span class="context-label">Team:</span>
+          <span id="cellTeam" class="context-value" style="color:var(--text-muted);">—</span>
+        </div>
+        <div class="context-row">
+          <span class="context-label">Role / Slot:</span>
+          <span id="roleSlot" class="context-value highlight">—</span>
+        </div>
+        <div class="context-row" style="align-items:center;">
+          <span class="context-label">Current:</span>
+          <span id="currentVal" class="context-value">None</span>
+          <button id="clearSlotBtn" onclick="assign('', this); return false;" style="display:none; margin-left:auto; font-size:10px; background:var(--danger-light); color:var(--danger); border:1px solid rgba(220,38,38,0.2); border-radius:4px; padding:1px 6px; cursor:pointer; font-weight:600;" title="Clear assignment from this slot">✕ Clear</button>
+        </div>
+      </div>
+
+      <div class="workers-section">
+        <div id="invalidCellState" class="empty-state">
+          <span class="empty-icon">🖱️</span>
+          <span class="empty-text">Click an assignment cell in Q1–Q4 (row 6+) to see available members.</span>
+        </div>
+        <div id="validCellState" style="display:none; flex-direction:column; gap:8px; flex:1; min-height:0;">
+          <div class="section-header">
+            <span class="section-title">Available Members</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span id="sortToggleBtn" onclick="toggleAvailableSort()" style="font-size:10px; cursor:pointer; color:var(--primary); font-weight:600; padding:1px 6px; border-radius:4px; background:var(--primary-light);" title="Toggle sorting order">Sort: A–Z</span>
+              <span id="availableCount" class="badge badge-primary">0</span>
+            </div>
+          </div>
+          <div id="availableList" class="workers-list"></div>
+          <button class="collapse-header" onclick="toggleConflicts()">
+            <span>Conflicts / Unavailable (<span id="conflictsCount">0</span>)</span>
+            <span id="collapseIcon" class="collapse-icon">▶</span>
+          </button>
+          <div id="conflictsContent" class="collapse-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW 2: LOAD BALANCE STATS TAB -->
+    <div id="statsView" style="display:none; flex-direction:column; gap:8px; flex:1; min-height:0;">
+       <div class="context-card" style="flex:1; overflow-y:auto; padding:0;">
+          <div style="padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; z-index: 10;">
+             <span style="font-weight: 600; font-size: 12px;">Total Assignments</span>
+             <span style="font-size: 10px; color: var(--text-muted);" id="statsQuarter">Q1</span>
+          </div>
+          <div id="statsList" style="display: flex; flex-direction: column;">
+             <!-- Stats rows rendered by JavaScript -->
+          </div>
+       </div>
+    </div>
+
+  </div>
+
+  <script>
+    // ==========================================
+    // ⚙️ ADMINISTRATOR SETTINGS
+    // ==========================================
+    
+    var PROXIMITY_WARNING_DAYS = 14; // How many days to look backward/forward for a recent assignment
+    
+    var PROXIMITY_RED_DAYS     = 1;  // Gap of <= 1 day will show a Red badge (High Fatigue)
+    var PROXIMITY_ORANGE_DAYS  = 7;  // Gap of <= 7 days will show an Orange badge (Medium Fatigue)
+                                     // Anything above this (up to the WARNING_DAYS limit) shows a Yellow badge.
+    
+    // ==========================================
+    // 🔒 INTERNAL STATE (Do not modify)
+    // ==========================================
+    var loadedSheet      = '';    
+    var chunkData        = null;  
+    var currentSheet     = '';
+    var currentRow       = -1;
+    var currentCol       = -1;
+    var currentCellValue = '';
+    var currentTeam      = '';
+    var isDataLoaded     = false;
+    var lastWasScheduler = false;
+    var conflictsVisible = false;
+    var currentTab       = 'assign'; 
+    
+    var isAssigning      = false; 
+
+    // --- HELPER: Removes Chinese characters and cleans spacing ---
+    function cleanLabel(str) {
+        if (!str) return '';
+        var eng = String(str).replace(/[^\x00-\x7F]/g, "").replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+        return eng || str; 
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+      runLightPoll();
+    });
+
+    function switchTab(tab) {
+      markActive();
+      currentTab = tab;
+      document.getElementById('tabAssign').classList.toggle('active', tab === 'assign');
+      document.getElementById('tabStats').classList.toggle('active', tab === 'stats');
+      
+      document.getElementById('assignView').style.display = tab === 'assign' ? 'flex' : 'none';
+      document.getElementById('statsView').style.display = tab === 'stats' ? 'flex' : 'none';
+      
+      if (tab === 'stats') {
+        renderStats();
+      }
+    }
+
+    function renderStats() {
+      if (!chunkData) return;
+      
+      document.getElementById('statsQuarter').textContent = chunkData.sheetName;
+      var workers = (chunkData.teamsMap[currentTeam] || []).slice();
+      var statsList = document.getElementById('statsList');
+      statsList.innerHTML = '';
+      
+      if (workers.length === 0) {
+         statsList.innerHTML = '<div class="empty-state" style="padding:16px; border:none;"><span class="empty-text">No workers mapped to this team.</span></div>';
+         return;
+      }
+      
+      var counts = {};
+      var roleBreakdowns = {}; 
+      
+      workers.forEach(function(w) { 
+         counts[w] = 0; 
+         roleBreakdowns[w] = {}; 
+      });
+      
+      for (var r in chunkData.rowAssignments) {
+         var assignments = chunkData.rowAssignments[r];
+         for (var w in assignments) {
+            if (counts.hasOwnProperty(w)) {
+               counts[w] += assignments[w].length;
+               
+               var rowDateStr = chunkData.rowDates[r] ? chunkData.rowDates[r].tds : '';
+               var displayDate = rowDateStr;
+               if (rowDateStr) {
+                  var parts = rowDateStr.split('-');
+                  if (parts.length === 3) {
+                     var d = new Date(parts[0], parts[1]-1, parts[2]);
+                     displayDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  }
+               }
+               
+               assignments[w].forEach(function(a) {
+                  var teamName = chunkData.columnTeamRawMap[a.col];
+                  if (!teamName || teamName.trim() === '') teamName = a.role; 
+                  
+                  // Apply label sanitizer
+                  teamName = cleanLabel(teamName);
+                  
+                  if (!roleBreakdowns[w][teamName]) {
+                      roleBreakdowns[w][teamName] = [];
+                  }
+                  roleBreakdowns[w][teamName].push({
+                      display: displayDate,
+                      timestamp: rowDateStr
+                  });
+               });
+            }
+         }
+      }
+      
+      workers.sort(function(a, b) { return a.localeCompare(b); });
+      
+      workers.forEach(function(w) {
+         var wrapper = document.createElement('div');
+         wrapper.style.borderBottom = '1px solid var(--border)';
+         
+         var row = document.createElement('div');
+         row.style.display = 'flex';
+         row.style.justifyContent = 'space-between';
+         row.style.alignItems = 'center';
+         row.style.padding = '8px 12px';
+         row.style.fontSize = '12px';
+         
+         var nameSpan = document.createElement('span');
+         nameSpan.textContent = w;
+         
+         var countSpan = document.createElement('span');
+         countSpan.className = 'stat-count';
+         countSpan.textContent = counts[w];
+         
+         if (counts[w] === 0) {
+             countSpan.style.background = 'var(--bg)';
+             countSpan.style.color = 'var(--text-muted)';
+             row.appendChild(nameSpan);
+             row.appendChild(countSpan);
+             wrapper.appendChild(row);
+         } else {
+             row.style.cursor = 'pointer';
+             row.onmouseover = function() { row.style.backgroundColor = 'var(--bg)'; };
+             row.onmouseout = function() { row.style.backgroundColor = 'transparent'; };
+             
+             var nameContainer = document.createElement('div');
+             nameContainer.style.display = 'flex';
+             nameContainer.style.alignItems = 'center';
+             nameContainer.style.gap = '6px';
+             
+             var arrow = document.createElement('span');
+             arrow.textContent = '▶';
+             arrow.style.fontSize = '9px';
+             arrow.style.color = 'var(--text-muted)';
+             arrow.style.transition = 'transform 0.2s';
+             
+             nameContainer.appendChild(arrow);
+             nameContainer.appendChild(nameSpan);
+             
+             row.appendChild(nameContainer);
+             row.appendChild(countSpan);
+             wrapper.appendChild(row);
+             
+             var breakdownDiv = document.createElement('div');
+             breakdownDiv.style.display = 'none';
+             breakdownDiv.style.padding = '4px 12px 10px 24px';
+             breakdownDiv.style.flexDirection = 'column';
+             breakdownDiv.style.gap = '8px';
+             
+             var roles = Object.keys(roleBreakdowns[w]).sort();
+             roles.forEach(function(roleName) {
+                 var datesArr = roleBreakdowns[w][roleName];
+                 datesArr.sort(function(a, b) { return a.timestamp.localeCompare(b.timestamp); });
+                 
+                 var rHeader = document.createElement('div');
+                 rHeader.style.display = 'flex';
+                 rHeader.style.justifyContent = 'space-between';
+                 rHeader.style.fontSize = '11px';
+                 rHeader.style.fontWeight = '600';
+                 rHeader.style.color = 'var(--text)';
+                 
+                 var rName = document.createElement('span');
+                 rName.textContent = roleName;
+                 var rCount = document.createElement('span');
+                 rCount.textContent = datesArr.length;
+                 
+                 rHeader.appendChild(rName);
+                 rHeader.appendChild(rCount);
+                 breakdownDiv.appendChild(rHeader);
+                 
+                 var dList = document.createElement('div');
+                 dList.style.display = 'flex';
+                 dList.style.flexWrap = 'wrap';
+                 dList.style.gap = '4px';
+                 dList.style.marginTop = '2px';
+                 
+                 datesArr.forEach(function(dObj) {
+                     var dBadge = document.createElement('span');
+                     dBadge.textContent = dObj.display;
+                     dBadge.style.fontSize = '10px';
+                     dBadge.style.color = 'var(--text-muted)';
+                     dBadge.style.background = 'var(--border)';
+                     dBadge.style.padding = '2px 6px';
+                     dBadge.style.borderRadius = '4px';
+                     dList.appendChild(dBadge);
+                 });
+                 
+                 breakdownDiv.appendChild(dList);
+             });
+             
+             wrapper.appendChild(breakdownDiv);
+             
+             row.onclick = function() {
+                 var isOpen = breakdownDiv.style.display === 'flex';
+                 breakdownDiv.style.display = isOpen ? 'none' : 'flex';
+                 arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+             };
+         }
+         
+         statsList.appendChild(wrapper);
+      });
+      
+      if (statsList.lastChild) {
+         statsList.lastChild.style.borderBottom = 'none';
+      }
+    }
+
+    var pollTimer = null;
+    var BASE_POLL_INTERVAL = 1500;
+    var SLOW_POLL_INTERVAL = 3000;      // after 1 minute without activity
+    var IDLE_POLL_INTERVAL = 5000;      // after 5 minutes without activity
+    var SLOW_AFTER_MS      = 60000;
+    var IDLE_AFTER_MS      = 300000;
+    var CHUNK_MAX_AGE_MS   = 600000;    // cached quarter data is re-fetched after 10 minutes
+    var lastActivityAt     = new Date().getTime();
+    var chunkCache         = {};        // sheetName -> chunk (kept in the browser)
+    var pollBackoffMs      = 5000;
+    var MAX_POLL_INTERVAL_MS = 60000;
+
+    function markActive() { 
+      var wasSuspended = (new Date().getTime() - lastActivityAt > 15 * 60 * 1000);
+      lastActivityAt = new Date().getTime(); 
+      if (wasSuspended) {
+        if (pollTimer) clearTimeout(pollTimer);
+        runLightPoll();
+      }
+    }
+
+    function nextPollInterval() {
+      var idle = new Date().getTime() - lastActivityAt;
+      if (idle >= IDLE_AFTER_MS) return IDLE_POLL_INTERVAL;
+      if (idle >= SLOW_AFTER_MS) return SLOW_POLL_INTERVAL;
+      return BASE_POLL_INTERVAL;
+    }
+
+    ['mousemove', 'keydown', 'click'].forEach(function(evt) {
+      document.addEventListener(evt, markActive, { passive: true });
+    });
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        if (pollTimer) clearTimeout(pollTimer);
+      } else {
+        markActive();
+        if (pollTimer) clearTimeout(pollTimer);
+        runLightPoll();
+      }
+    });
+
+    function scheduleNextPoll(delayMs) {
+      if (document.hidden) return;
+      var ms = delayMs || nextPollInterval();
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(runLightPoll, ms);
+    }
+
+    // Worker history is derived in the browser from rowAssignments (not sent by the server)
+    function buildWorkerHistory(chunk) {
+      var hist = {};
+      var rows = Object.keys(chunk.rowAssignments || {});
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var rd = chunk.rowDates[r];
+        if (!rd) continue;
+        var ts = 0;
+        var dObj = new Date(rd.tds + "T12:00:00");
+        if (!isNaN(dObj.getTime())) ts = dObj.getTime();
+        var awm = chunk.rowAssignments[r];
+        for (var worker in awm) {
+          if (!hist[worker]) hist[worker] = [];
+          hist[worker].push({
+            row: parseInt(r, 10),
+            dateStr: rd.dateStr,
+            timestamp: ts,
+            roles: awm[worker].map(function(x) { return x.role; }).join(', ')
+          });
+        }
+      }
+      return hist;
+    }
+
+    function getCellValue(row, col) {
+      var awm = chunkData && chunkData.rowAssignments ? chunkData.rowAssignments[row] : null;
+      if (!awm) return '';
+      for (var name in awm) {
+        var arr = awm[name];
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i].col === col) return name;
+        }
+      }
+      return '';
+    }
+
+    function getUnavailMap(row) {
+      var out = {};
+      var rd = chunkData && chunkData.rowDates ? chunkData.rowDates[row] : null;
+      if (!rd) return out;
+      var weekly = chunkData.weeklyUnavail || {};
+      var ds = rd.dateStr || '';
+      var base = ds.indexOf('Monday') !== -1 ? weekly.monday : (ds.indexOf('Friday') !== -1 ? weekly.friday : null);
+      var k;
+      if (base) { for (k in base) out[k] = base[k]; }
+      if (chunkData.unavailByRow && chunkData.unavailByRow[row]) {
+        var rowSpecific = chunkData.unavailByRow[row];
+        for (k in rowSpecific) out[k] = rowSpecific[k];
+      } else {
+        var specific = (chunkData.unavailByDate || {})[rd.tds];
+        if (specific) { for (k in specific) out[k] = specific[k]; }
+      }
+      return out;
+    }
+
+    function storeChunk(chunk) {
+      chunk.workerHistory = buildWorkerHistory(chunk);
+      chunk.loadedAt = new Date().getTime();
+      chunkCache[chunk.sheetName] = chunk;
+    }
+
+    var prefetchBusy = false;
+    var prefetchFailedAt = {};
+    // Quietly pre-load adjacent quarters so switching quarters is instant
+    function maybePrefetch() {
+      if (prefetchBusy || isAssigning || document.hidden || !chunkData || !chunkData.neighbors) return;
+      var now = new Date().getTime();
+      for (var i = 0; i < chunkData.neighbors.length; i++) {
+        var n = chunkData.neighbors[i];
+        var c = chunkCache[n];
+        if (c && now - c.loadedAt < CHUNK_MAX_AGE_MS) continue;
+        if (prefetchFailedAt[n] && now - prefetchFailedAt[n] < 60000) continue;
+        prefetchBusy = true;
+        google.script.run
+          .withSuccessHandler(function(res) {
+            prefetchBusy = false;
+            if (res && res.chunkData && res.chunkData.success) storeChunk(res.chunkData);
+            else prefetchFailedAt[n] = new Date().getTime();
+          })
+          .withFailureHandler(function() {
+            prefetchBusy = false;
+            prefetchFailedAt[n] = new Date().getTime();
+          })
+          .prefetchChunk(n);
+        return;
+      }
+    }
+
+    function ingestChunk(chunk) {
+      storeChunk(chunk);
+      chunkData = chunk;
+      loadedSheet = chunk.sheetName;
+      isDataLoaded = true;
+      rebuildDropdown();
+    }
+
+    function getCachedVersions() {
+      var v = {};
+      var now = new Date().getTime();
+      for (var s in chunkCache) {
+        if (now - chunkCache[s].loadedAt < CHUNK_MAX_AGE_MS) v[s] = chunkCache[s].version;
+      }
+      return v;
+    }
+
+    function runLightPoll() {
+      if (document.hidden) return;
+      if (new Date().getTime() - lastActivityAt > 15 * 60 * 1000) {
+         setStatus('error', 'Polling paused due to inactivity. Click to resume.');
+         return; // Suspend polling
+      }
+      
+      if (isAssigning) {
+         scheduleNextPoll(1000);
+         return;
+      }
+      
+      google.script.run
+        .withSuccessHandler(function(ctx) {
+          pollBackoffMs = 5000;
+          if (isAssigning) { scheduleNextPoll(1000); return; }
+          
+          if (!ctx || !ctx.success) { scheduleNextPoll(); return; }
+          
+          if (ctx.isAdmin) {
+             document.getElementById('setupLink').style.display = 'inline';
+          } else {
+             document.getElementById('setupLink').style.display = 'none';
+          }
+
+          if (ctx.waitingForClick) {
+             if (lastWasScheduler) showInvalidState();
+             lastWasScheduler = false;
+             setStatus('synced', 'Click a cell to begin...');
+             scheduleNextPoll();
+             return;
+          }
+
+          if (!ctx.isSchedulerCell) {
+            if (lastWasScheduler) showInvalidState();
+            lastWasScheduler = false;
+            setStatus('synced', 'Select a scheduling cell');
+            scheduleNextPoll();
+            return;
+          }
+          var dataReplaced = false;
+          if (ctx.chunkData) {
+             if (ctx.chunkData.success) {
+                 ingestChunk(ctx.chunkData);
+                 dataReplaced = true;
+             } else {
+                 setStatus('error', ctx.chunkData.error || 'Failed to load chunk');
+             }
+          } else if (ctx.version !== undefined && loadedSheet !== ctx.sheetName) {
+             var cc = chunkCache[ctx.sheetName];
+             if (cc && cc.version === ctx.version && (new Date().getTime() - cc.loadedAt) < CHUNK_MAX_AGE_MS) {
+                chunkData = cc;
+                loadedSheet = cc.sheetName;
+                isDataLoaded = true;
+                rebuildDropdown();
+                dataReplaced = true;
+             }
+          }
+          if (isDataLoaded && loadedSheet === ctx.sheetName) {
+            var rowChanged = ctx.row !== currentRow;
+            var colChanged = ctx.col !== currentCol;
+            
+            if (!lastWasScheduler || rowChanged || colChanged || dataReplaced) {
+              lastWasScheduler = true;
+              currentRow = ctx.row;
+              currentCol = ctx.col;
+              currentSheet = ctx.sheetName;
+              if (rowChanged || colChanged || dataReplaced) markActive();
+              updateUI(colChanged);
+            } else {
+              setStatus('synced', 'Synced');
+            }
+          } else {
+             setStatus('loading', 'Loading quarter data...');
+          }
+          setTimeout(maybePrefetch, 500);
+          scheduleNextPoll();
+        })
+        .withFailureHandler(function() { 
+          pollBackoffMs = Math.min(pollBackoffMs * 2, MAX_POLL_INTERVAL_MS);
+          scheduleNextPoll(pollBackoffMs); 
+        })
+        .pollContext(loadedSheet, getCachedVersions());
+    }
+
+    function updateUI(colChanged) {
+      if (!isDataLoaded || !chunkData) return;
+      if (colChanged || !currentTeam) {
+         currentTeam = chunkData.columnTeamMap[currentCol] || currentTeam || (chunkData.teamNames.length ? chunkData.teamNames[0] : '');
+      }
+      
+      currentCellValue = getCellValue(currentRow, currentCol);
+      
+      var rawTeam = cleanLabel(chunkData.columnTeamRawMap[currentCol] || currentTeam);
+      
+      var role = cleanLabel(chunkData.columnTeamRawMap[currentCol]);
+      if (!role || role === '') role = cleanLabel(chunkData.columnRoleMap[currentCol]);
+      if (!role || role === '') role = 'Column ' + colNumToLetter(currentCol);
+      
+      var rowDate = chunkData.rowDates[currentRow] ? chunkData.rowDates[currentRow].dateStr : '(No date)';
+
+      document.getElementById('invalidCellState').style.display = 'none';
+      document.getElementById('validCellState').style.display   = 'flex';
+      document.getElementById('contextCard').style.display      = 'flex';
+
+      var addr = currentSheet + '!' + colNumToLetter(currentCol) + currentRow;
+      document.getElementById('cellAddress').textContent = addr;
+      document.getElementById('targetDate').textContent  = rowDate;
+      document.getElementById('cellTeam').textContent    = rawTeam;
+      document.getElementById('roleSlot').textContent    = role;
+      
+      updateCurrentValueEl();
+
+      var sameDateRowsUI = [];
+      if (rowDate && rowDate.indexOf('(No date') === -1) {
+          // MODIFIED: If it's a Saturday, only check the current session (row) for double-booking
+          if (rowDate.toLowerCase().indexOf('saturday') !== -1) {
+              sameDateRowsUI.push(currentRow);
+          } else {
+              for (var r in chunkData.rowDates) {
+                 if (chunkData.rowDates[r].dateStr === rowDate) {
+                    sameDateRowsUI.push(parseInt(r, 10));
+                 }
+              }
+          }
+      } else {
+          sameDateRowsUI.push(currentRow);
+      }
+      
+      var rolesForCurrent = [];
+      if (currentCellValue) {
+          for (var sr = 0; sr < sameDateRowsUI.length; sr++) {
+             var rId = sameDateRowsUI[sr];
+             if (chunkData.rowAssignments && chunkData.rowAssignments[rId]) {
+                 var arr = chunkData.rowAssignments[rId][currentCellValue] || [];
+                 for (var a = 0; a < arr.length; a++) {
+                    var tName = chunkData.columnTeamRawMap[arr[a].col];
+                    if (!tName || tName.trim() === '') tName = arr[a].role;
+                    var l = cleanLabel(tName);
+                    
+                    if (rId !== currentRow) l += " (Diff. Session)";
+                    rolesForCurrent.push(l);
+                 }
+             }
+          }
+      }
+      var isDoubleBooked = rolesForCurrent.length > 1;
+      
+      if (isDoubleBooked) {
+          document.getElementById('doubleBookingWarning').style.display = 'flex';
+          document.getElementById('doubleBookingWarningText').textContent = 
+              currentCellValue + ' is assigned multiple times on this date (' + rolesForCurrent.join(', ') + ')!';
+      } else {
+          document.getElementById('doubleBookingWarning').style.display = 'none';
+      }
+
+      var sel = document.getElementById('teamSelect');
+      if (sel.value !== currentTeam && currentTeam) sel.value = currentTeam;
+
+      renderWorkers();
+      if (currentTab === 'stats') renderStats(); 
+      setStatus('synced', 'Synced');
+    }
+
+    function showInvalidState() {
+      document.getElementById('invalidCellState').style.display = 'flex';
+      document.getElementById('validCellState').style.display   = 'none';
+      document.getElementById('contextCard').style.display      = 'none';
+      document.getElementById('doubleBookingWarning').style.display = 'none';
+      var clearBtn = document.getElementById('clearSlotBtn');
+      if (clearBtn) clearBtn.style.display = 'none';
+    }
+
+    function updateCurrentValueEl() {
+      var el = document.getElementById('currentVal');
+      el.textContent      = currentCellValue || 'None';
+      el.style.color      = currentCellValue ? 'var(--primary)' : 'var(--text-muted)';
+      el.style.fontWeight = currentCellValue ? 'bold' : 'normal';
+      var clearBtn = document.getElementById('clearSlotBtn');
+      if (clearBtn) {
+        clearBtn.style.display = currentCellValue ? 'inline-block' : 'none';
+      }
+    }
+
+    function onTeamChanged() {
+      currentTeam = document.getElementById('teamSelect').value;
+      renderWorkers();
+      if (currentTab === 'stats') renderStats(); 
+    }
+
+    function manualRefresh(hard) {
+      if (!currentSheet) return;
+      var doHard = !!hard;
+      markActive();
+      if (doHard) chunkCache = {};
+      setStatus('loading', 'Refreshing quarter data...');
+      google.script.run
+        .withSuccessHandler(function(res) {
+           if (res && res.chunkData && res.chunkData.success) {
+             ingestChunk(res.chunkData);
+             updateUI(false);
+             setStatus('synced', 'Synced');
+           } else {
+             setStatus('error', 'Refresh failed');
+           }
+        })
+        .withFailureHandler(function(err) { setStatus('error', err.toString()); })
+        .manualFetchChunk(currentSheet, doHard);
+    }
+
+    function doRefreshRosters() {
+      setStatus('loading', 'Applying roster changes & syncing...');
+      var btn = document.getElementById('refreshRostersBtn');
+      if (btn) btn.style.pointerEvents = 'none';
+      google.script.run
+        .withSuccessHandler(function(res) {
+           if (btn) btn.style.pointerEvents = 'auto';
+           if (res && res.success) {
+               setStatus('synced', 'Rosters applied & synced');
+               manualRefresh(true);
+           } else {
+               var errStr = (res && res.errors && res.errors.length) ? res.errors.join('; ') : (res && res.error ? res.error : 'Unknown');
+               setStatus('error', 'Failed: ' + errStr);
+           }
+        })
+        .withFailureHandler(function(err) {
+           if (btn) btn.style.pointerEvents = 'auto';
+           setStatus('error', err.toString());
+        })
+        .applyWorkerRosterChanges();
+    }
+
+    var availableSortMode = 'az'; // 'az' or 'load'
+    var currentAvailableData = [];
+
+    function toggleAvailableSort() {
+      availableSortMode = (availableSortMode === 'az') ? 'load' : 'az';
+      var btn = document.getElementById('sortToggleBtn');
+      if (btn) {
+        btn.textContent = (availableSortMode === 'az') ? 'Sort: A–Z' : 'Sort: Least Assigned';
+        btn.style.background = (availableSortMode === 'load') ? 'var(--primary)' : 'var(--primary-light)';
+        btn.style.color = (availableSortMode === 'load') ? '#ffffff' : 'var(--primary)';
+      }
+      renderAvailableList(currentAvailableData);
+    }
+
+    function renderWorkers() {
+      if (!chunkData) return;
+      
+      var workers = (chunkData.teamsMap[currentTeam] || []).slice().sort();
+
+      // Dynamic Interpreter Subteam Filter based on Speaker Language (Option 2)
+      var roleName = (chunkData.columnRoleMap[currentCol] || chunkData.columnTeamRawMap[currentCol] || '').toLowerCase();
+      if (roleName.indexOf('interpreter') !== -1 || roleName.indexOf('翻譯') !== -1 || currentTeam.toLowerCase().indexOf('interpreter') !== -1) {
+        var currentAssignments = chunkData.rowAssignments[currentRow] || {};
+        var sCols = chunkData.speakerCols || [];
+        var speakerName = '';
+        for (var wName in currentAssignments) {
+          var assignList = currentAssignments[wName] || [];
+          for (var al = 0; al < assignList.length; al++) {
+            if (sCols.indexOf(assignList[al].col) !== -1) {
+              speakerName = wName;
+              break;
+            }
+          }
+          if (speakerName) break;
+        }
+        
+        if (speakerName && chunkData.speakerLanguages) {
+          var lang = String(chunkData.speakerLanguages[speakerName.toLowerCase()]).toUpperCase();
+          var subTeamKey = null;
+          
+          var langToTeam = {
+            'CHINESE': ['chinese to english', 'c-to-e'],
+            'ENGLISH': ['english to chinese', 'e-to-c'],
+            'CANTONESE': ['cantonese']
+          };
+          
+          if (langToTeam[lang]) {
+            var searchTerms = langToTeam[lang];
+            for (var tKey in chunkData.teamsMap) {
+              var tKeyLower = tKey.toLowerCase();
+              for (var st = 0; st < searchTerms.length; st++) {
+                if (tKeyLower.indexOf(searchTerms[st]) !== -1) {
+                  subTeamKey = tKey; break;
+                }
+              }
+              if (subTeamKey) break;
+            }
+          }
+          
+          if (subTeamKey && chunkData.teamsMap[subTeamKey] && chunkData.teamsMap[subTeamKey].length > 0) {
+            workers = chunkData.teamsMap[subTeamKey].slice().sort();
+          }
+        }
+      }
+      var unavailMap  = getUnavailMap(currentRow);
+      
+      var rowDate = chunkData.rowDates[currentRow] ? chunkData.rowDates[currentRow].dateStr : '';
+      var sameDateRows = [];
+      
+      var targetTimestamp = 0;
+      if (rowDate && rowDate.indexOf('(No date') === -1) {
+          var dObj = new Date(chunkData.rowDates[currentRow].tds + "T12:00:00");
+          if (!isNaN(dObj.getTime())) targetTimestamp = dObj.getTime();
+          
+          // MODIFIED: If it's a Saturday, only check the current session (row) for double-booking
+          if (rowDate.toLowerCase().indexOf('saturday') !== -1) {
+              sameDateRows.push(currentRow);
+          } else {
+              for (var r in chunkData.rowDates) {
+                 if (chunkData.rowDates[r].dateStr === rowDate) {
+                    sameDateRows.push(parseInt(r, 10));
+                 }
+              }
+          }
+      } else {
+          sameDateRows.push(currentRow);
+      }
+      
+      var available = [], conflictsAssigned = [], conflictsUnavail = [];
+      
+      for (var i = 0; i < workers.length; i++) {
+        var w = workers[i];
+        var conflictRoles = [];
+        
+        for (var sr = 0; sr < sameDateRows.length; sr++) {
+            var rId = sameDateRows[sr];
+            var aMap = chunkData.rowAssignments[rId] || {};
+            var assignments = aMap[w] || [];
+            
+            for (var a = 0; a < assignments.length; a++) {
+               if (rId !== currentRow || assignments[a].col !== currentCol) {
+                   
+                   var aRole = assignments[a].role || '';
+                   var isSpecialRole = aRole.indexOf('Choir Presentation') !== -1 ||
+                                       aRole.indexOf('Choir Warm-up') !== -1 ||
+                                       aRole.indexOf('Choir Staging') !== -1 ||
+                                       aRole.indexOf('Buffer') !== -1 ||
+                                       aRole.indexOf('Cooking Duty') !== -1;
+                   var teamName = isSpecialRole ? aRole : (chunkData.columnTeamRawMap[assignments[a].col] || aRole);
+                   teamName = cleanLabel(teamName);
+                   
+                   var cDateStr = chunkData.rowDates[rId] ? chunkData.rowDates[rId].tds : '';
+                   var displayDate = '';
+                   if (cDateStr) {
+                      var parts = cDateStr.split('-');
+                      if (parts.length === 3) {
+                         var d = new Date(parts[0], parts[1]-1, parts[2]);
+                         displayDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      }
+                   }
+                   
+                   var conflictLabel = displayDate ? (displayDate + " - " + teamName) : teamName;
+                   
+                   if (rId !== currentRow) conflictLabel += " (Diff. Session)";
+                   conflictRoles.push(conflictLabel);
+               }
+            }
+        }
+        
+        var proxWarning = null;
+        var proxColor = 'var(--warning)';
+        
+        if (targetTimestamp > 0 && chunkData.workerHistory && chunkData.workerHistory[w]) {
+            var history = chunkData.workerHistory[w];
+            var minDiffDays = 999;
+            var closestRecord = null;
+            
+            for (var h = 0; h < history.length; h++) {
+                if (history[h].row === currentRow) continue; 
+                
+                var diffDays = Math.abs(history[h].timestamp - targetTimestamp) / (1000 * 60 * 60 * 24);
+                
+                if (diffDays >= 0 && diffDays <= PROXIMITY_WARNING_DAYS) {
+                    if (diffDays < minDiffDays) {
+                        minDiffDays = diffDays;
+                        closestRecord = history[h];
+                    }
+                }
+            }
+            if (closestRecord) {
+                var dir = (closestRecord.timestamp < targetTimestamp) ? "ago" : "from now";
+                var rd = Math.round(minDiffDays);
+                var dayStr = rd === 1 ? " day " : " days ";
+                
+                var dObj = new Date(closestRecord.timestamp);
+                var displayDate = closestRecord.dateStr; 
+                if (!isNaN(dObj.getTime())) {
+                    displayDate = dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }
+                
+                var roleLabels = [];
+                var pastAssignments = chunkData.rowAssignments[closestRecord.row] ? chunkData.rowAssignments[closestRecord.row][w] : null;
+                
+                if (pastAssignments) {
+                    for (var pa = 0; pa < pastAssignments.length; pa++) {
+                        var colNum = pastAssignments[pa].col;
+                        var rName = chunkData.columnTeamRawMap[colNum];
+                        if (!rName || rName.trim() === '') rName = pastAssignments[pa].role;
+                        roleLabels.push(cleanLabel(rName));
+                    }
+                }
+                var rolesStr = roleLabels.length > 0 ? roleLabels.join(", ") : cleanLabel(closestRecord.roles);
+                
+                if (minDiffDays === 0) {
+                     proxWarning = "Same day (" + rolesStr + ")";
+                } else {
+                     proxWarning = rd + dayStr + dir + " (" + displayDate + " - " + rolesStr + ")";
+                }
+                
+                if (minDiffDays <= PROXIMITY_RED_DAYS) {
+                    proxColor = 'var(--danger)'; 
+                } else if (minDiffDays <= PROXIMITY_ORANGE_DAYS) {
+                    proxColor = '#ea580c'; 
+                } else {
+                    proxColor = 'var(--warning)'; 
+                }
+            }
+        }
+        
+        var assignCount = (chunkData.workerHistory && chunkData.workerHistory[w]) ? chunkData.workerHistory[w].length : 0;
+        var isUnavl = unavailMap.hasOwnProperty(w);
+        
+        if (w === currentCellValue || (conflictRoles.length === 0 && !isUnavl)) {
+            available.push({
+              name: w,
+              prox: proxWarning,
+              proxColor: proxColor,
+              count: assignCount,
+              hasWarning: !!proxWarning
+            });
+        }
+        
+        if (conflictRoles.length > 0) {
+            conflictsAssigned.push({ name: w, role: conflictRoles.join(', ') });
+        }
+        if (isUnavl) {
+            conflictsUnavail.push({ name: w, reason: unavailMap[w] });
+        }
+      }
+      
+      renderAvailableList(available);
+      renderConflictsList(conflictsAssigned, conflictsUnavail);
+    }
+
+    function renderAvailableList(available) {
+      currentAvailableData = available || [];
+      var list = document.getElementById('availableList');
+      list.innerHTML = '';
+      document.getElementById('availableCount').textContent = currentAvailableData.length;
+      if (currentAvailableData.length === 0) {
+        list.innerHTML = '<div class="empty-state" style="padding:16px;"><span class="empty-icon" style="font-size:18px;">⚠️</span><span class="empty-text">No available workers for this team on this date.</span></div>';
+        return;
+      }
+
+      var sorted = currentAvailableData.slice();
+      if (availableSortMode === 'load') {
+        sorted.sort(function(a, b) {
+          if (a.name === currentCellValue) return -1;
+          if (b.name === currentCellValue) return 1;
+          if (a.count !== b.count) return a.count - b.count;
+          if (a.hasWarning !== b.hasWarning) return a.hasWarning ? 1 : -1;
+          return a.name.localeCompare(b.name);
+        });
+      } else {
+        sorted.sort(function(a, b) {
+          if (a.name === currentCellValue) return -1;
+          if (b.name === currentCellValue) return 1;
+          return a.name.localeCompare(b.name);
+        });
+      }
+
+      sorted.forEach(function(workerObj) {
+        var worker = workerObj.name;
+        var prox = workerObj.prox;
+        var isCurrent = (worker === currentCellValue);
+        
+        var card = document.createElement('div');
+        card.className = 'worker-card';
+        if (isCurrent) {
+          card.style.borderColor = 'var(--success)';
+          card.style.backgroundColor = 'var(--success-light)';
+        }
+        
+        var leftCol = document.createElement('div');
+        leftCol.style.display = 'flex';
+        leftCol.style.flexDirection = 'column';
+        leftCol.style.gap = '2px';
+        
+        var nameRow = document.createElement('div');
+        nameRow.style.display = 'flex';
+        nameRow.style.alignItems = 'center';
+        nameRow.style.gap = '6px';
+        
+        var nameSpan   = document.createElement('span');
+        nameSpan.className   = 'worker-name';
+        nameSpan.textContent = worker;
+        nameRow.appendChild(nameSpan);
+
+        var countBadge = document.createElement('span');
+        countBadge.style.fontSize = '9px';
+        countBadge.style.fontWeight = '600';
+        countBadge.style.padding = '1px 5px';
+        countBadge.style.borderRadius = '10px';
+        countBadge.style.border = '1px solid var(--border)';
+        countBadge.style.background = 'var(--bg)';
+        countBadge.style.color = 'var(--text-muted)';
+        countBadge.textContent = workerObj.count + 'x';
+        countBadge.title = workerObj.count + ' assignment(s) this quarter';
+        nameRow.appendChild(countBadge);
+
+        leftCol.appendChild(nameRow);
+        
+        if (prox && !isCurrent) {
+            var pSpan = document.createElement('span');
+            pSpan.textContent = '⏱️ ' + prox;
+            pSpan.style.fontSize = '9px';
+            pSpan.style.color = workerObj.proxColor;
+            pSpan.style.fontWeight = '700';
+            leftCol.appendChild(pSpan);
+        }
+        
+        var actionSpan = document.createElement('span');
+        actionSpan.className   = 'worker-action';
+        actionSpan.textContent = isCurrent ? '✓' : '+';
+        if (isCurrent) {
+          actionSpan.style.color = 'var(--success)';
+          card.title = 'Click to unassign worker from this slot';
+        } else {
+          card.title = 'Click to assign ' + worker;
+        }
+        
+        card.appendChild(leftCol);
+        card.appendChild(actionSpan);
+        card.onclick = function() {
+          if (isCurrent) {
+            assign('', card); // One-click unassign
+          } else {
+            assign(worker, card);
+          }
+        };
+        list.appendChild(card);
+      });
+    }
+
+    function renderConflictsList(assigned, unavail) {
+      var container = document.getElementById('conflictsContent');
+      container.innerHTML = '';
+      var total = assigned.length + unavail.length;
+      document.getElementById('conflictsCount').textContent = total;
+      if (total === 0) {
+        container.innerHTML = '<div class="empty-state" style="padding:10px;border-style:solid;font-size:11px;">No scheduling conflicts detected!</div>';
+        return;
+      }
+      assigned.forEach(function(c) {
+        var roleText = c.role || '';
+        var badgeClass = 'reason-assigned';
+        var badgeText = 'Assigned';
+        
+        if (roleText.indexOf('Choir Presentation') !== -1) {
+          badgeClass = 'reason-choir';
+          badgeText = 'Choir';
+        } else if (roleText.indexOf('Choir Warm-up') !== -1 || roleText.indexOf('Choir Staging') !== -1 || roleText.indexOf('Buffer') !== -1) {
+          badgeClass = 'reason-buffer';
+          badgeText = 'Choir Buffer';
+        } else if (roleText.indexOf('Cooking Duty') !== -1) {
+          badgeClass = 'reason-cooking';
+          badgeText = 'Cooking Duty';
+        }
+        
+        var el = document.createElement('div');
+        el.className = 'conflict-card';
+        el.innerHTML = '<div class="conflict-worker"><span>' + esc(c.name) + '</span>'
+          + '<span class="conflict-reason ' + badgeClass + '">' + badgeText + '</span></div>'
+          + '<div style="font-size:10px;color:var(--text-muted)">Scheduled as: ' + esc(c.role) + '</div>';
+        container.appendChild(el);
+      });
+      unavail.forEach(function(c) {
+        var reasonText = c.reason || '';
+        var badgeClass = 'reason-unavailable';
+        var badgeText = 'Unavailable';
+        
+        if (reasonText.indexOf('ESSC') !== -1) {
+          badgeClass = 'reason-essc-unavail';
+          badgeText = 'ESSC Unavail';
+        }
+        
+        var el = document.createElement('div');
+        el.className = 'conflict-card';
+        el.innerHTML = '<div class="conflict-worker"><span>' + esc(c.name) + '</span>'
+          + '<span class="conflict-reason ' + badgeClass + '">' + badgeText + '</span></div>'
+          + '<div style="font-size:10px;color:var(--text-muted)">Reason: ' + esc(c.reason) + '</div>';
+        container.appendChild(el);
+      });
+    }
+
+    function rebuildDropdown() {
+      var select = document.getElementById('teamSelect');
+      select.innerHTML = '';
+      if (chunkData && chunkData.teamNames) {
+         var sortedTeams = chunkData.teamNames.slice().sort(function(a,b) {
+             return cleanLabel(a).localeCompare(cleanLabel(b));
+         });
+         sortedTeams.forEach(function(team) {
+           var opt = document.createElement('option');
+           opt.value = team; opt.textContent = cleanLabel(team);
+           if (team === currentTeam) opt.selected = true;
+           select.appendChild(opt);
+         });
+      }
+    }
+
+    function assign(workerName, cardElement) {
+      if (isAssigning) return;
+      isAssigning = true;
+      
+      var actionSpan = cardElement ? (cardElement.querySelector ? cardElement.querySelector('.worker-action') : null) : null;
+      if (actionSpan) actionSpan.innerHTML = '<span class="assigning-spinner"></span>';
+      setStatus('loading', workerName ? ('Assigning ' + workerName + '...') : 'Clearing slot...');
+      
+      var startRTT = new Date().getTime();
+      
+      google.script.run
+        .withSuccessHandler(function(res) {
+          isAssigning = false;
+          var rtt = new Date().getTime() - startRTT;
+          if (res && res.success) {
+            
+            if (chunkData.rowAssignments[currentRow]) {
+               if (currentCellValue && chunkData.rowAssignments[currentRow][currentCellValue]) {
+                 var oldArr = chunkData.rowAssignments[currentRow][currentCellValue];
+                 for (var k = oldArr.length - 1; k >= 0; k--) {
+                    if (oldArr[k].col === currentCol) oldArr.splice(k, 1);
+                 }
+                 if (oldArr.length === 0) delete chunkData.rowAssignments[currentRow][currentCellValue];
+               }
+               if (workerName) {
+                 if (!chunkData.rowAssignments[currentRow][workerName]) {
+                     chunkData.rowAssignments[currentRow][workerName] = [];
+                 }
+                 var rName = chunkData.columnRoleMap[currentCol] || 'Column ' + colNumToLetter(currentCol);
+                 chunkData.rowAssignments[currentRow][workerName].push({ col: currentCol, role: rName });
+               }
+            }
+            if (res.prevVersion !== undefined && chunkData.version === res.prevVersion) {
+               chunkData.version = res.version;
+            }
+            chunkData.workerHistory = buildWorkerHistory(chunkData);
+            markActive();
+            currentCellValue = workerName;
+            updateUI(false);
+            
+            var tMsg = res.times ? " (API: " + res.times.total + "ms | set: " + res.times.set + "ms)" : "";
+            setStatus('synced', (workerName ? 'Assigned ✓' : 'Cleared slot ✓') + ' RTT: ' + rtt + 'ms' + tMsg);
+          } else {
+            setStatus('error', workerName ? 'Assignment failed' : 'Clear slot failed');
+            if (actionSpan) actionSpan.textContent = workerName ? '+' : '✕';
+          }
+        })
+        .withFailureHandler(function(err) {
+          isAssigning = false;
+          setStatus('error', err.toString());
+          if (actionSpan) actionSpan.textContent = workerName ? '+' : '✕';
+        })
+        .assignWorkerExact(currentSheet, currentRow, currentCol, workerName);
+    }
+
+    function toggleConflicts() {
+      conflictsVisible = !conflictsVisible;
+      document.getElementById('conflictsContent').classList.toggle('show', conflictsVisible);
+      document.getElementById('collapseIcon').classList.toggle('open', conflictsVisible);
+    }
+
+    function setStatus(type, msg) {
+      document.getElementById('statusDot').className = 'status-dot ' + type;
+      document.getElementById('statusText').textContent = msg;
+    }
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function colNumToLetter(n) {
+      var r = '';
+      while (n > 0) { var rem=(n-1)%26; r=String.fromCharCode(65+rem)+r; n=Math.floor((n-1)/26); }
+      return r;
+    }
+  </script>
+</body>
+</html>

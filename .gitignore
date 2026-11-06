@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Python virtual environments & cache
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Node dependencies (if any)
+node_modules/
+
+# Local offline workbooks & test spreadsheets
+workbooks/
+
+# Reference folders & samples
+docs/references/
+
+# Scratch files, temporary scripts & session transcripts
+scratch/
+Context/
+
+# Protect against loose untracked Excel files at root
+*.xlsx
+!2027 Sermon Topic & Hymns.xlsx
+!Fall 2026 ESSC Grid.xlsx
+!Fall 2026 ESSC.xlsx
+!GG ESSC Schedule.xlsx
+!archive/sheet.xlsx
