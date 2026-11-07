@@ -6,12 +6,12 @@
 const CONFIG = {
   // --- External Integrations ---
   SWR_SOURCE_QUARTERS: ['Q1', 'Q2', 'Q3', 'Q4'],
-  HOLY_WORK_SCHEDULES_FOLDER_ID: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.HOLY_WORK_SCHEDULES_FOLDER_ID) ? APP_CONFIG.HOLY_WORK_SCHEDULES_FOLDER_ID : '1A2B8lmTT0qBWHT4TFzXG4RRGIWRhzagP', // Parent directory in Google Drive
+  HOLY_WORK_SCHEDULES_FOLDER_ID: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.HOLY_WORK_SCHEDULES_FOLDER_ID) ? APP_CONFIG.HOLY_WORK_SCHEDULES_FOLDER_ID : '1sH-ELkxwRLB78ts2rJeTpPmYtDY8KfzE', // Parent directory in Google Drive
   UNAVAILABILITY_SHEET_PROPERTY: 'UNAVAILABILITY_SPREADSHEET_ID',
   SERMON_TOPICS_SHEET_PROPERTY: 'SERMON_TOPICS_SHEET_ID',
   SERMON_TOPICS_SHEET_URL_PROPERTY: 'SERMON_TOPICS_SHEET_URL',
-  DEFAULT_SERMON_TOPICS_ID: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.DEFAULT_SERMON_TOPICS_ID) ? APP_CONFIG.DEFAULT_SERMON_TOPICS_ID : '1zrMaPubQ7uaUvgBjYZ3lWIBRUclg0GsGliHMqpvOark', // 2026 Sermon Topic & Hymns workbook
-  DEFAULT_UNAVAILABILITY_ID: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.DEFAULT_UNAVAILABILITY_ID) ? APP_CONFIG.DEFAULT_UNAVAILABILITY_ID : '1y60TfMhFwR4vP4k6v3aK2Yp6kG0d8S_4',
+  DEFAULT_SERMON_TOPICS_ID: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.DEFAULT_SERMON_TOPICS_ID) ? APP_CONFIG.DEFAULT_SERMON_TOPICS_ID : '17qRYYuZTV3PWf92CnMmqwARaC2bk4BUPxz8DQ_9f3hU', // 2027 Sermon Topic & Hymns workbook
+  DEFAULT_UNAVAILABILITY_ID: (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.DEFAULT_UNAVAILABILITY_ID) ? APP_CONFIG.DEFAULT_UNAVAILABILITY_ID : '1Ge3iKjPUIkJCuAdlRDqhgEWt4DlO7dL3mFyl0TVLuaY',
   
   // --- Assignment Settings ---
   // How many days to check backward/forward to warn about scheduling someone too closely
@@ -539,27 +539,40 @@ function onEdit(e) {
   var tz = ss.getSpreadsheetTimeZone();
   var time = Utilities.formatDate(new Date(), tz, "MM/dd/yyyy hh:mm:ss a");
   var cellRef = e.range.getA1Notation();
-  var userEmail = (e.user && e.user.getEmail()) ? e.user.getEmail() : "Unknown User";
-  
-  var logSheet = ss.getSheetByName("MonthlyOverridesLog");
-  if (!logSheet) {
-    logSheet = ss.insertSheet("MonthlyOverridesLog");
-    var headers = ["Timestamp", "User Email", "Schedule Month", "Cell Edited", "Old Value", "New Value"];
-    logSheet.appendRow(headers);
-    logSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#fce5cd");
-    logSheet.setFrozenRows(1);
-    logSheet.autoResizeColumns(1, headers.length);
-    logSheet.hideSheet();
+  var userEmail = (e.user && e.user.getEmail()) ? e.user.getEmail() : "";
+  if (!userEmail) {
+    try { userEmail = Session.getActiveUser().getEmail(); } catch (uErr) {}
   }
+  if (!userEmail) userEmail = "Authenticated Editor";
   
-  logSheet.insertRowAfter(1);
-  logSheet.getRange(2, 1, 1, 6).setValues([[time, userEmail, s, cellRef, oldValue, newValue]]);
-  
-  // Keep the log bounded (newest rows are at the top): trim oldest rows in batches
-  var LOG_MAX_ROWS = 5000, LOG_TRIM_SLACK = 500;
-  var lastLogRow = logSheet.getLastRow();
-  if (lastLogRow > LOG_MAX_ROWS + 1 + LOG_TRIM_SLACK) {
-    logSheet.deleteRows(LOG_MAX_ROWS + 2, lastLogRow - (LOG_MAX_ROWS + 1));
+  var editLock = LockService.getScriptLock();
+  var hasEditLock = false;
+  try {
+    hasEditLock = editLock.tryLock(2000);
+    var logSheet = ss.getSheetByName("MonthlyOverridesLog");
+    if (!logSheet) {
+      logSheet = ss.insertSheet("MonthlyOverridesLog");
+      var headers = ["Timestamp", "User Email", "Schedule Month", "Cell Edited", "Old Value", "New Value"];
+      logSheet.appendRow(headers);
+      logSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#fce5cd");
+      logSheet.setFrozenRows(1);
+      logSheet.autoResizeColumns(1, headers.length);
+      logSheet.hideSheet();
+    }
+    
+    logSheet.insertRowAfter(1);
+    logSheet.getRange(2, 1, 1, 6).setValues([[time, userEmail, s, cellRef, oldValue, newValue]]);
+    
+    // Keep the log bounded (newest rows are at the top): trim oldest rows in batches
+    var LOG_MAX_ROWS = 5000, LOG_TRIM_SLACK = 500;
+    var lastLogRow = logSheet.getLastRow();
+    if (lastLogRow > LOG_MAX_ROWS + 1 + LOG_TRIM_SLACK) {
+      logSheet.deleteRows(LOG_MAX_ROWS + 2, lastLogRow - (LOG_MAX_ROWS + 1));
+    }
+  } catch (logErr) {
+    console.warn("Could not write to MonthlyOverridesLog: " + logErr.message);
+  } finally {
+    if (hasEditLock) editLock.releaseLock();
   }
 }
 
@@ -630,17 +643,25 @@ function pollContext(loadedSheet, clientVersions) {
 }
 
 function isAdminUser() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var config = getChurchConfig();
-  var editors = [];
-  var prof = config ? (config.profile || config.churchProfile) : null;
-  if (prof && prof.authorized_editors) {
-    editors = prof.authorized_editors.split(',').map(function(e) { return e.trim().toLowerCase(); }).filter(function(e) { return e; });
-  } else {
-    editors = [Session.getActiveUser().getEmail().toLowerCase(), ss.getOwner().getEmail().toLowerCase()];
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var config = getChurchConfig();
+    var editors = [];
+    var prof = config ? (config.profile || config.churchProfile) : null;
+    if (prof && prof.authorized_editors) {
+      editors = prof.authorized_editors.split(',').map(function(e) { return e.trim().toLowerCase(); }).filter(function(e) { return e; });
+    } else if (typeof APP_CONFIG !== 'undefined' && Array.isArray(APP_CONFIG.AUTHORIZED_EDITORS)) {
+      editors = APP_CONFIG.AUTHORIZED_EDITORS.map(function(e) { return String(e).trim().toLowerCase(); }).filter(Boolean);
+    }
+    var owner = ss ? ss.getOwner() : null;
+    var ownerEmail = (owner && typeof owner.getEmail === 'function' && owner.getEmail()) ? owner.getEmail().toLowerCase() : '';
+    var currentUser = (Session.getActiveUser() && Session.getActiveUser().getEmail()) ? Session.getActiveUser().getEmail().toLowerCase() : '';
+    if (!currentUser) return false;
+    return editors.indexOf(currentUser) !== -1 || (ownerEmail !== '' && currentUser === ownerEmail);
+  } catch (e) {
+    console.warn('isAdminUser fallback error: ' + e.message);
+    return false;
   }
-  var currentUser = Session.getActiveUser().getEmail().toLowerCase();
-  return editors.indexOf(currentUser) !== -1 || currentUser === ss.getOwner().getEmail().toLowerCase();
 }
 
 function getNeighborQuarters(sName) {
@@ -687,18 +708,24 @@ function assignWorkerExact(sheetName, row, col, workerName) {
   var locked = false;
   
   try {
+    if (!lock.tryLock(5000)) {
+      return { success: false, error: 'Could not acquire lock. Another assignment is in progress. Please try again.' };
+    }
+    locked = true;
+
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var t1 = new Date().getTime();
     
     var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return { success: false, error: 'Sheet "' + sheetName + '" not found.' };
     var t2 = new Date().getTime();
     
     var cell = sheet.getRange(row, col);
     var t3 = new Date().getTime();
     
-    // Check and enforce Data Validation dropdown rules if configured on cell
+    // Check and enforce Data Validation dropdown rules if configured on cell (unless allowInvalid is true)
     var rule = cell.getDataValidation();
-    if (rule && workerName !== "" && workerName.toUpperCase() !== "X") {
+    if (rule && !rule.getAllowInvalid() && workerName !== "" && workerName.toUpperCase() !== "X") {
       var criteriaType = rule.getCriteriaType();
       var args = rule.getCriteriaValues();
       if (criteriaType === SpreadsheetApp.DataValidationCriteria.VALUE_IN_RANGE) {
@@ -723,12 +750,8 @@ function assignWorkerExact(sheetName, row, col, workerName) {
       }
     }
     
-    // Validation above is read-only and runs outside the lock; hold the lock only for the write
-    if (!lock.tryLock(5000)) {
-      return { success: false, error: 'Could not acquire lock. Another assignment is in progress. Please try again.' };
-    }
-    locked = true;
     cell.setValue(workerName);
+    SpreadsheetApp.flush();
     var t4 = new Date().getTime();
     
     var d = { r: row, c: col, s: sheetName };
@@ -778,10 +801,19 @@ function getTeamsAndWorkers(forceRefresh) {
   
   if (isRosters) {
     for (var col = 0; col < maxC; col++) {
-      var tn = String(data[0][col] || '').trim();
+      var tn = '', sRow = 1;
+      var r0Val = String(data[0][col] !== undefined && data[0][col] !== null ? data[0][col] : '').trim();
+      var r1Val = (data.length > 1) ? String(data[1][col] !== undefined && data[1][col] !== null ? data[1][col] : '').trim() : '';
+      if (r1Val && (r0Val === '' || !isNaN(Number(r0Val)))) {
+        tn = r1Val;
+        sRow = 2;
+      } else {
+        tn = r0Val;
+        sRow = 1;
+      }
       if (!tn) continue;
       teams[tn] = [];
-      for (var row = 1; row < maxR; row++) {
+      for (var row = sRow; row < maxR; row++) {
         var w = String(data[row][col] || '').trim();
         if (w && teams[tn].indexOf(w) === -1) teams[tn].push(w);
       }
@@ -4421,30 +4453,93 @@ function repair2027LiveSpreadsheets() {
     try { ui = SpreadsheetApp.getUi(); } catch(e) {}
     var log = [];
 
-    // 1. Repair Team Emails & Usher Team Emails formulas (Workers row 3 inclusion)
+    // 1. Repair Team Emails & Usher Team Emails formulas (Workers row 3 inclusion & syntax restoration)
     var emailTabs = ['Team Emails', 'Usher Team Emails'];
     var emailFormulasRepaired = 0;
     emailTabs.forEach(function(tabName) {
       var tab = ss.getSheetByName(tabName);
       if (!tab) return;
       var lastCol = tab.getLastColumn();
-      if (lastCol < 1) return;
+      var numRowsToScan = Math.min(2, tab.getLastRow());
+      if (lastCol < 1 || numRowsToScan < 1) return;
       
-      var formulas = tab.getRange(2, 1, 1, lastCol).getFormulas()[0];
+      var formulasMatrix = tab.getRange(1, 1, numRowsToScan, lastCol).getFormulas();
       var modified = false;
-      for (var c = 0; c < formulas.length; c++) {
-        var f = formulas[c];
-        if (f && f.indexOf('Workers!$F$4:$F') !== -1) {
-          formulas[c] = f.replace(/Workers!\$F\$4:\$F/g, 'Workers!$F$3:$F');
-          modified = true;
-          emailFormulasRepaired++;
+      for (var r = 0; r < formulasMatrix.length; r++) {
+        for (var c = 0; c < formulasMatrix[r].length; c++) {
+          var f = formulasMatrix[r][c];
+          if (!f) continue;
+          var newF = f
+            .replace(/Workers!\$(?:1\$3|[EF]\$[34]):\$([EF])/g, function(m, col) { return 'Workers!$' + col + '$3:$' + col; })
+            .replace(/Workers!([A-Z]+)4:([A-Z]+)/g, function(m, c1, c2) { return 'Workers!' + c1 + '3:' + c2; });
+          if (newF !== f) {
+            formulasMatrix[r][c] = newF;
+            modified = true;
+            emailFormulasRepaired++;
+          }
         }
       }
       if (modified) {
-        tab.getRange(2, 1, 1, lastCol).setFormulas([formulas]);
-        log.push('Repaired ' + tabName + ' formulas to include Workers row 3 (Aaron Young).');
+        tab.getRange(1, 1, numRowsToScan, lastCol).setFormulas(formulasMatrix);
+        log.push('Repaired ' + tabName + ' formulas to include Workers row 3 (Aaron Young) and fix syntax.');
       }
     });
+
+    // 1b. Populate blank ValidationConfig Column C cleaning entries (AL-AU)
+    var valSheet = ss.getSheetByName('ValidationConfig');
+    if (valSheet && valSheet.getLastRow() >= 2) {
+      var valData = valSheet.getRange(2, 1, valSheet.getLastRow() - 1, 3).getValues();
+      var valModified = 0;
+      for (var vr = 0; vr < valData.length; vr++) {
+        var colLet = String(valData[vr][0] || '').trim().toUpperCase();
+        var roleDesc = String(valData[vr][1] || '').trim();
+        var teamsVal = String(valData[vr][2] || '').trim();
+        if (colLet && !teamsVal && typeof inferCleaningFallbackTeams_ === 'function') {
+          var cIdx0 = colLetterToIdx_(colLet) - 1;
+          var inferred = inferCleaningFallbackTeams_(cIdx0, roleDesc);
+          if (inferred.length > 0) {
+            valData[vr][2] = inferred.join(', ');
+            valModified++;
+          }
+        }
+      }
+      if (valModified > 0) {
+        valSheet.getRange(2, 1, valData.length, 3).setValues(valData);
+        log.push('Populated ' + valModified + ' blank cleaning team mapping(s) in ValidationConfig Column C.');
+      }
+    }
+
+    // 1c. Deduplicate disabled Coordinator rows where an identical active (email + q_columns) row exists
+    var coordSheet = ss.getSheetByName('Coordinators');
+    if (coordSheet && coordSheet.getLastRow() >= 2) {
+      var cData = coordSheet.getDataRange().getValues();
+      var cHeaders = cData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+      var emailIdx = cHeaders.indexOf('email');
+      var qColsIdx = cHeaders.indexOf('q_columns');
+      var incIdx = cHeaders.indexOf('include_in_email');
+      if (emailIdx !== -1 && qColsIdx !== -1 && incIdx !== -1) {
+        var activeKeys = {};
+        for (var cr = 1; cr < cData.length; cr++) {
+          var incVal = String(cData[cr][incIdx] || '').trim().toUpperCase();
+          if (incVal === 'Y' || incVal === 'YES' || incVal === 'TRUE') {
+            var k = String(cData[cr][emailIdx] || '').trim().toLowerCase() + '|' + String(cData[cr][qColsIdx] || '').replace(/\s+/g, '').toUpperCase();
+            activeKeys[k] = true;
+          }
+        }
+        var removedCoords = 0;
+        for (var dr = cData.length - 1; dr >= 1; dr--) {
+          var dInc = String(cData[dr][incIdx] || '').trim().toUpperCase();
+          var dKey = String(cData[dr][emailIdx] || '').trim().toLowerCase() + '|' + String(cData[dr][qColsIdx] || '').replace(/\s+/g, '').toUpperCase();
+          if ((dInc === 'N' || dInc === 'NO' || dInc === 'FALSE') && activeKeys[dKey]) {
+            coordSheet.deleteRow(dr + 1);
+            removedCoords++;
+          }
+        }
+        if (removedCoords > 0) {
+          log.push('Removed ' + removedCoords + ' redundant disabled Coordinator row(s).');
+        }
+      }
+    }
 
     // 2. Repair Sermon Topics IMPORTRANGE formulas
     var sermonId = PropertiesService.getScriptProperties().getProperty(CONFIG.SERMON_TOPICS_SHEET_PROPERTY) ||
@@ -4661,7 +4756,7 @@ function ensureWorkersSchema(ss) {
       sheet.insertColumnsAfter(sheet.getMaxColumns(), colsToAdd.length);
     }
     
-    sheet.getRange(2, lastCol + 1, 1, colsToAdd.length)
+    sheet.getRange(headerRow, lastCol + 1, 1, colsToAdd.length)
          .setValues([colsToAdd])
          .setFontWeight("bold");
          
@@ -4675,93 +4770,95 @@ function ensureWorkersSchema(ss) {
  */
 function syncRosters() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var workersSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
-    var teamsSheet = ss.getSheetByName(CONFIG.TEAMS_SHEET);
-    if (!workersSheet || !teamsSheet) return { success: false, error: 'Missing Workers or Teams sheet' };
-    
-    var sc = CacheService.getScriptCache();
-    
-    // Inspect teamsSheet: check if any cell in rows 1-3 contains a formula or if it uses wide multi-column layout
-    var teamsLastCol = teamsSheet.getLastColumn();
-    var teamsLastRow = Math.min(teamsSheet.getLastRow(), 5);
-    var hasFormula = false;
-    if (teamsLastRow >= 1 && teamsLastCol >= 1) {
-      var formulas = teamsSheet.getRange(1, 1, teamsLastRow, teamsLastCol).getFormulas();
-      for (var fr = 0; fr < formulas.length; fr++) {
-        for (var fc = 0; fc < formulas[fr].length; fc++) {
-          if (formulas[fr][fc] && String(formulas[fr][fc]).trim().indexOf('=') === 0) {
-            hasFormula = true;
-            break;
+    return executeWithLockAndRetry_('syncRosters', function() {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var workersSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
+      var teamsSheet = ss.getSheetByName(CONFIG.TEAMS_SHEET);
+      if (!workersSheet || !teamsSheet) return { success: false, error: 'Missing Workers or Teams sheet' };
+      
+      var sc = CacheService.getScriptCache();
+      
+      // Inspect teamsSheet: check if any cell in rows 1-3 contains a formula or if it uses wide multi-column layout
+      var teamsLastCol = teamsSheet.getLastColumn();
+      var teamsLastRow = Math.min(teamsSheet.getLastRow(), 5);
+      var hasFormula = false;
+      if (teamsLastRow >= 1 && teamsLastCol >= 1) {
+        var formulas = teamsSheet.getRange(1, 1, teamsLastRow, teamsLastCol).getFormulas();
+        for (var fr = 0; fr < formulas.length; fr++) {
+          for (var fc = 0; fc < formulas[fr].length; fc++) {
+            if (formulas[fr][fc] && String(formulas[fr][fc]).trim().indexOf('=') === 0) {
+              hasFormula = true;
+              break;
+            }
           }
+          if (hasFormula) break;
         }
-        if (hasFormula) break;
       }
-    }
-    
-    var isWide = teamsLastCol > 2;
-    var schema = getWorkerSchema(workersSheet);
-    
-    // If teamsSheet uses live formulas or wide multi-column layout, or schema has no teamsCol, preserve it!
-    if (hasFormula || isWide || !schema || schema.teamsCol === -1) {
+      
+      var isWide = teamsLastCol > 2;
+      var schema = getWorkerSchema(workersSheet);
+      
+      // If teamsSheet uses live formulas or wide multi-column layout, or schema has no teamsCol, preserve it!
+      if (hasFormula || isWide || !schema || schema.teamsCol === -1) {
+        cacheRemoveLarge(sc, 'teams_and_workers');
+        cacheRemoveLarge(sc, 'workers_day_avail');
+        sc.remove('workers_data');
+        if (typeof bumpAllQuarterVersions === 'function') bumpAllQuarterVersions();
+        return { success: true, mode: 'formula_preserved' };
+      }
+      
+      var data = workersSheet.getDataRange().getValues();
+      var longFormat = [["Team", "Name"]]; // Row 1 headers for the long format
+      var dataStart = (schema.dataStartIdx !== undefined) ? schema.dataStartIdx : 2;
+      var hasWorkerTeamText = false;
+      
+      for (var r = dataStart; r < data.length; r++) {
+        var status = "";
+        if (schema.statusCol !== -1) {
+           status = String(data[r][schema.statusCol]).trim().toLowerCase();
+        }
+        if (status === 'inactive') continue; // Skip inactive workers
+        
+        var name = String(data[r][schema.nameCols[0]]).trim();
+        var teamsStr = String(data[r][schema.teamsCol]).trim();
+        
+        if (!name || !teamsStr) continue;
+        hasWorkerTeamText = true;
+        
+        var workerTeams = teamsStr.split(/[,;]/).map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+        for (var t = 0; t < workerTeams.length; t++) {
+          longFormat.push([workerTeams[t], name]);
+        }
+      }
+      
+      if (!hasWorkerTeamText) {
+        cacheRemoveLarge(sc, 'teams_and_workers');
+        cacheRemoveLarge(sc, 'workers_day_avail');
+        sc.remove('workers_data');
+        if (typeof bumpAllQuarterVersions === 'function') bumpAllQuarterVersions();
+        return { success: true, mode: 'formula_preserved' };
+      }
+      
+      // Sort by team name, then worker name
+      var headersRow = longFormat.shift();
+      longFormat.sort(function(a, b) {
+        var teamCmp = a[0].localeCompare(b[0]);
+        if (teamCmp !== 0) return teamCmp;
+        return a[1].localeCompare(b[1]);
+      });
+      longFormat.unshift(headersRow);
+      
+      teamsSheet.clearContents();
+      if (longFormat.length > 0) {
+         teamsSheet.getRange(1, 1, longFormat.length, 2).setValues(longFormat);
+      }
+      
       cacheRemoveLarge(sc, 'teams_and_workers');
       cacheRemoveLarge(sc, 'workers_day_avail');
       sc.remove('workers_data');
       if (typeof bumpAllQuarterVersions === 'function') bumpAllQuarterVersions();
-      return { success: true, mode: 'formula_preserved' };
-    }
-    
-    var data = workersSheet.getDataRange().getValues();
-    var longFormat = [["Team", "Name"]]; // Row 1 headers for the long format
-    var dataStart = (schema.dataStartIdx !== undefined) ? schema.dataStartIdx : 2;
-    var hasWorkerTeamText = false;
-    
-    for (var r = dataStart; r < data.length; r++) {
-      var status = "";
-      if (schema.statusCol !== -1) {
-         status = String(data[r][schema.statusCol]).trim().toLowerCase();
-      }
-      if (status === 'inactive') continue; // Skip inactive workers
-      
-      var name = String(data[r][schema.nameCols[0]]).trim();
-      var teamsStr = String(data[r][schema.teamsCol]).trim();
-      
-      if (!name || !teamsStr) continue;
-      hasWorkerTeamText = true;
-      
-      var workerTeams = teamsStr.split(/[,;]/).map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
-      for (var t = 0; t < workerTeams.length; t++) {
-        longFormat.push([workerTeams[t], name]);
-      }
-    }
-    
-    if (!hasWorkerTeamText) {
-      cacheRemoveLarge(sc, 'teams_and_workers');
-      cacheRemoveLarge(sc, 'workers_day_avail');
-      sc.remove('workers_data');
-      if (typeof bumpAllQuarterVersions === 'function') bumpAllQuarterVersions();
-      return { success: true, mode: 'formula_preserved' };
-    }
-    
-    // Sort by team name, then worker name
-    var headersRow = longFormat.shift();
-    longFormat.sort(function(a, b) {
-      var teamCmp = a[0].localeCompare(b[0]);
-      if (teamCmp !== 0) return teamCmp;
-      return a[1].localeCompare(b[1]);
+      return { success: true, mode: 'rebuilt' };
     });
-    longFormat.unshift(headersRow);
-    
-    teamsSheet.clearContents();
-    if (longFormat.length > 0) {
-       teamsSheet.getRange(1, 1, longFormat.length, 2).setValues(longFormat);
-    }
-    
-    cacheRemoveLarge(sc, 'teams_and_workers');
-    cacheRemoveLarge(sc, 'workers_day_avail');
-    sc.remove('workers_data');
-    if (typeof bumpAllQuarterVersions === 'function') bumpAllQuarterVersions();
-    return { success: true, mode: 'rebuilt' };
   } catch(e) {
     return { success: false, error: e.toString() };
   }
@@ -5076,129 +5173,131 @@ function processWorkerImportFlow(csvText) {
 
 function commitWorkerImport(stagingId, options) {
   try {
-    var cached = CacheService.getUserCache().get(stagingId);
-    if (!cached) return { success: false, error: 'Import session expired. Please try again.' };
-    
-    var records = JSON.parse(cached);
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
-    var schema = getWorkerSchema(sheet);
-    var existingData = sheet.getDataRange().getValues();
-    
-    var existingMap = {};
-    for (var r = 2; r < existingData.length; r++) {
-       var n = String(existingData[r][schema.nameCols[0]]).trim().toLowerCase();
-       if (n) existingMap[n] = { row: r + 1, data: existingData[r] };
-    }
-    
-    // Build map of team names to column index on Workers tab (for checkbox support)
-    var headersRow1 = sheet.getRange(1, 1, 1, sheet.getMaxColumns()).getValues()[0];
-    var headersRow2 = sheet.getRange(2, 1, 1, sheet.getMaxColumns()).getValues()[0];
-    var teamColMap = {};
-    for (var c = 0; c < sheet.getMaxColumns(); c++) {
-      var h1 = String(headersRow1[c] || '').trim().toLowerCase();
-      var h2 = String(headersRow2[c] || '').trim().toLowerCase();
-      if (h1 && teamColMap[h1] === undefined) teamColMap[h1] = c + 1;
-      if (h2 && teamColMap[h2] === undefined) teamColMap[h2] = c + 1;
-    }
-    
-    var newRows = [];
-    var updates = [];
-    
-    for (var i = 0; i < records.length; i++) {
-       var r = records[i];
-       if (r.action === 'unchanged' || r.action === 'conflict') continue;
-       
-       var rec = r.record;
-       var nKey = String(rec.Name).trim().toLowerCase();
-       if (r.action === 'update' && existingMap[nKey]) {
-          updates.push({ row: existingMap[nKey].row, rec: rec });
-       } else if (r.action === 'new') {
-          var newRow = new Array(sheet.getMaxColumns());
-          for (var c = 0; c < newRow.length; c++) newRow[c] = '';
-          if (schema.nameCols.length > 0) newRow[schema.nameCols[0]] = rec.Name;
-          if (schema.chineseNameCol !== -1 && rec.ChineseName) newRow[schema.chineseNameCol] = rec.ChineseName;
-          if (schema.emailCol !== -1) newRow[schema.emailCol] = rec.Email;
-          if (schema.phoneCol !== -1 && rec.Phone) newRow[schema.phoneCol] = rec.Phone;
-          if (schema.teamsCol !== -1) newRow[schema.teamsCol] = rec.Teams;
-          if (schema.qualCol !== -1) newRow[schema.qualCol] = rec.Qualifications;
-          if (schema.statusCol !== -1) newRow[schema.statusCol] = rec.Status;
-          
-          // Checkboxes on new row if team columns exist
-          if (rec.Teams) {
-            var teamsArr = rec.Teams.split(',').map(function(t){ return t.trim().toLowerCase(); });
-            for (var t = 0; t < teamsArr.length; t++) {
-              if (teamColMap[teamsArr[t]] !== undefined) {
-                newRow[teamColMap[teamsArr[t]] - 1] = true;
+    return executeWithLockAndRetry_('commitWorkerImport', function() {
+      var cached = CacheService.getUserCache().get(stagingId);
+      if (!cached) return { success: false, error: 'Import session expired. Please try again.' };
+      
+      var records = JSON.parse(cached);
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
+      var schema = getWorkerSchema(sheet);
+      var existingData = sheet.getDataRange().getValues();
+      
+      var existingMap = {};
+      for (var r = 2; r < existingData.length; r++) {
+         var n = String(existingData[r][schema.nameCols[0]]).trim().toLowerCase();
+         if (n) existingMap[n] = { row: r + 1, data: existingData[r] };
+      }
+      
+      // Build map of team names to column index on Workers tab (for checkbox support)
+      var headersRow1 = sheet.getRange(1, 1, 1, sheet.getMaxColumns()).getValues()[0];
+      var headersRow2 = sheet.getRange(2, 1, 1, sheet.getMaxColumns()).getValues()[0];
+      var teamColMap = {};
+      for (var c = 0; c < sheet.getMaxColumns(); c++) {
+        var h1 = String(headersRow1[c] || '').trim().toLowerCase();
+        var h2 = String(headersRow2[c] || '').trim().toLowerCase();
+        if (h1 && teamColMap[h1] === undefined) teamColMap[h1] = c + 1;
+        if (h2 && teamColMap[h2] === undefined) teamColMap[h2] = c + 1;
+      }
+      
+      var newRows = [];
+      var updates = [];
+      
+      for (var i = 0; i < records.length; i++) {
+         var r = records[i];
+         if (r.action === 'unchanged' || r.action === 'conflict') continue;
+         
+         var rec = r.record;
+         var nKey = String(rec.Name).trim().toLowerCase();
+         if (r.action === 'update' && existingMap[nKey]) {
+            updates.push({ row: existingMap[nKey].row, rec: rec });
+         } else if (r.action === 'new') {
+            var newRow = new Array(sheet.getMaxColumns());
+            for (var c = 0; c < newRow.length; c++) newRow[c] = '';
+            if (schema.nameCols.length > 0) newRow[schema.nameCols[0]] = rec.Name;
+            if (schema.chineseNameCol !== -1 && rec.ChineseName) newRow[schema.chineseNameCol] = rec.ChineseName;
+            if (schema.emailCol !== -1) newRow[schema.emailCol] = rec.Email;
+            if (schema.phoneCol !== -1 && rec.Phone) newRow[schema.phoneCol] = rec.Phone;
+            if (schema.teamsCol !== -1) newRow[schema.teamsCol] = rec.Teams;
+            if (schema.qualCol !== -1) newRow[schema.qualCol] = rec.Qualifications;
+            if (schema.statusCol !== -1) newRow[schema.statusCol] = rec.Status;
+            
+            // Checkboxes on new row if team columns exist
+            if (rec.Teams) {
+              var teamsArr = rec.Teams.split(',').map(function(t){ return t.trim().toLowerCase(); });
+              for (var t = 0; t < teamsArr.length; t++) {
+                if (teamColMap[teamsArr[t]] !== undefined) {
+                  newRow[teamColMap[teamsArr[t]] - 1] = true;
+                }
               }
             }
-          }
-          newRows.push(newRow);
-       }
-    }
-    
-    // Process updates (batched per row to prevent quota/rate limits)
-    var maxCols = sheet.getMaxColumns();
-    for (var i = 0; i < updates.length; i++) {
-       var u = updates[i];
-       var rowRange = sheet.getRange(u.row, 1, 1, maxCols);
-       var rowVals = rowRange.getValues()[0];
-       if (schema.emailCol !== -1 && u.rec.Email) rowVals[schema.emailCol] = u.rec.Email;
-       if (schema.chineseNameCol !== -1 && u.rec.ChineseName) rowVals[schema.chineseNameCol] = u.rec.ChineseName;
-       if (schema.phoneCol !== -1 && u.rec.Phone) rowVals[schema.phoneCol] = u.rec.Phone;
-       if (schema.teamsCol !== -1 && u.rec.Teams) rowVals[schema.teamsCol] = u.rec.Teams;
-       if (schema.qualCol !== -1 && u.rec.Qualifications) rowVals[schema.qualCol] = u.rec.Qualifications;
-       if (schema.statusCol !== -1 && u.rec.Status) rowVals[schema.statusCol] = u.rec.Status;
-       
-       if (u.rec.Teams) {
-         var teamsArr = u.rec.Teams.split(',').map(function(t){ return t.trim().toLowerCase(); });
-         for (var t = 0; t < teamsArr.length; t++) {
-           if (teamColMap[teamsArr[t]] !== undefined) {
-             rowVals[teamColMap[teamsArr[t]] - 1] = true;
+            newRows.push(newRow);
+         }
+      }
+      
+      // Process updates (batched per row to prevent quota/rate limits)
+      var maxCols = sheet.getMaxColumns();
+      for (var i = 0; i < updates.length; i++) {
+         var u = updates[i];
+         var rowRange = sheet.getRange(u.row, 1, 1, maxCols);
+         var rowVals = rowRange.getValues()[0];
+         if (schema.emailCol !== -1 && u.rec.Email) rowVals[schema.emailCol] = u.rec.Email;
+         if (schema.chineseNameCol !== -1 && u.rec.ChineseName) rowVals[schema.chineseNameCol] = u.rec.ChineseName;
+         if (schema.phoneCol !== -1 && u.rec.Phone) rowVals[schema.phoneCol] = u.rec.Phone;
+         if (schema.teamsCol !== -1 && u.rec.Teams) rowVals[schema.teamsCol] = u.rec.Teams;
+         if (schema.qualCol !== -1 && u.rec.Qualifications) rowVals[schema.qualCol] = u.rec.Qualifications;
+         if (schema.statusCol !== -1 && u.rec.Status) rowVals[schema.statusCol] = u.rec.Status;
+         
+         if (u.rec.Teams) {
+           var teamsArr = u.rec.Teams.split(',').map(function(t){ return t.trim().toLowerCase(); });
+           for (var t = 0; t < teamsArr.length; t++) {
+             if (teamColMap[teamsArr[t]] !== undefined) {
+               rowVals[teamColMap[teamsArr[t]] - 1] = true;
+             }
            }
          }
-       }
-       rowRange.setValues([rowVals]);
-    }
-    
-    // Process new rows
-    if (newRows.length > 0) {
-       var lastRow = sheet.getLastRow();
-       var startNewRow = lastRow + 1;
-       var totalCols = sheet.getMaxColumns();
-       var lastRowFormulas = lastRow >= 2 ? sheet.getRange(lastRow, 1, 1, totalCols).getFormulas()[0] : [];
-       
-       sheet.getRange(startNewRow, 1, newRows.length, totalCols).setValues(newRows);
-       
-       // Copy down formulas for any column that had a formula on lastRow and where newRows was blank
-       if (lastRowFormulas && lastRowFormulas.length > 0) {
-         for (var colIdx = 0; colIdx < totalCols; colIdx++) {
-           var f = lastRowFormulas[colIdx];
-           if (f && f !== '') {
-             var hasValues = false;
-             for (var nr = 0; nr < newRows.length; nr++) {
-               if (newRows[nr][colIdx] !== '' && newRows[nr][colIdx] !== null && typeof newRows[nr][colIdx] !== 'undefined') {
-                 hasValues = true;
-                 break;
+         rowRange.setValues([rowVals]);
+      }
+      
+      // Process new rows
+      if (newRows.length > 0) {
+         var lastRow = sheet.getLastRow();
+         var startNewRow = lastRow + 1;
+         var totalCols = sheet.getMaxColumns();
+         var lastRowFormulas = lastRow >= 2 ? sheet.getRange(lastRow, 1, 1, totalCols).getFormulas()[0] : [];
+         
+         sheet.getRange(startNewRow, 1, newRows.length, totalCols).setValues(newRows);
+         
+         // Copy down formulas for any column that had a formula on lastRow and where newRows was blank
+         if (lastRowFormulas && lastRowFormulas.length > 0) {
+           for (var colIdx = 0; colIdx < totalCols; colIdx++) {
+             var f = lastRowFormulas[colIdx];
+             if (f && f !== '') {
+               var hasValues = false;
+               for (var nr = 0; nr < newRows.length; nr++) {
+                 if (newRows[nr][colIdx] !== '' && newRows[nr][colIdx] !== null && typeof newRows[nr][colIdx] !== 'undefined') {
+                   hasValues = true;
+                   break;
+                 }
+               }
+               if (!hasValues) {
+                 var sourceCell = sheet.getRange(lastRow, colIdx + 1, 1, 1);
+                 var targetRange = sheet.getRange(startNewRow, colIdx + 1, newRows.length, 1);
+                 sourceCell.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
                }
              }
-             if (!hasValues) {
-               var sourceCell = sheet.getRange(lastRow, colIdx + 1, 1, 1);
-               var targetRange = sheet.getRange(startNewRow, colIdx + 1, newRows.length, 1);
-               sourceCell.copyTo(targetRange, SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
-             }
            }
          }
-       }
-    }
-    
-    // Clean up
-    CacheService.getUserCache().remove(stagingId);
-    
-    // Rebuild Teams & clear cache
-    syncRosters();
-    
-    return { success: true };
+      }
+      
+      // Clean up
+      CacheService.getUserCache().remove(stagingId);
+      
+      // Rebuild Teams & clear cache
+      syncRosters();
+      
+      return { success: true };
+    });
   } catch(e) {
     return { success: false, error: e.toString() };
   }
@@ -5209,32 +5308,34 @@ function commitWorkerImport(stagingId, options) {
  */
 function setWorkerStatus(workerName, newStatus) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
-    var schema = getWorkerSchema(sheet);
-    if (!schema || schema.nameCols.length === 0 || schema.statusCol === -1) {
-       return { success: false, error: 'Workers sheet missing Name or Status columns' };
-    }
-    
-    var data = sheet.getDataRange().getValues();
-    var targetLower = String(workerName).trim().toLowerCase();
-    var found = false;
-    
-    for (var r = 2; r < data.length; r++) {
-       var n = String(data[r][schema.nameCols[0]]).trim().toLowerCase();
-       if (n === targetLower) {
-          sheet.getRange(r + 1, schema.statusCol + 1).setValue(newStatus);
-          found = true;
-          break;
-       }
-    }
-    
-    if (found) {
-       syncRosters();
-       return { success: true };
-    } else {
-       return { success: false, error: 'Worker not found' };
-    }
+    return executeWithLockAndRetry_('setWorkerStatus', function() {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
+      var schema = getWorkerSchema(sheet);
+      if (!schema || schema.nameCols.length === 0 || schema.statusCol === -1) {
+         return { success: false, error: 'Workers sheet missing Name or Status columns' };
+      }
+      
+      var data = sheet.getDataRange().getValues();
+      var targetLower = String(workerName).trim().toLowerCase();
+      var found = false;
+      
+      for (var r = 2; r < data.length; r++) {
+         var n = String(data[r][schema.nameCols[0]]).trim().toLowerCase();
+         if (n === targetLower) {
+            sheet.getRange(r + 1, schema.statusCol + 1).setValue(newStatus);
+            found = true;
+            break;
+         }
+      }
+      
+      if (found) {
+         syncRosters();
+         return { success: true };
+      } else {
+         return { success: false, error: 'Worker not found' };
+      }
+    });
   } catch(e) {
     return { success: false, error: e.toString() };
   }
@@ -5245,64 +5346,66 @@ function setWorkerStatus(workerName, newStatus) {
  */
 function renameWorker(oldName, newName, options) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var oldLower = String(oldName).trim().toLowerCase();
-    var newTrim = String(newName).trim();
-    if (!oldLower || !newTrim) return { success: false, error: 'Invalid names' };
-    
-    var stats = { workersSheet: 0, qSheets: 0 };
-    var isDryRun = options && options.dryRun;
-    
-    // 1. Rename in Workers tab
-    var wSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
-    var wSchema = getWorkerSchema(wSheet);
-    if (wSchema && wSchema.nameCols.length > 0) {
-       var wData = wSheet.getDataRange().getValues();
-       var wCol = wSchema.nameCols[0];
-       var wModified = false;
-       for (var r = 2; r < wData.length; r++) {
-          var n = String(wData[r][wCol]).trim().toLowerCase();
-          if (n === oldLower) {
-             stats.workersSheet++;
-             if (!isDryRun) {
-                wData[r][wCol] = newTrim;
-                wModified = true;
-             }
-          }
-       }
-       if (wModified) {
-          wSheet.getRange(1, 1, wData.length, wData[0].length).setValues(wData);
-       }
-    }
-    
-    // 2. Rename in Q1-Q4 sheets
-    var qSheets = CONFIG.QUARTERS;
-    for (var s = 0; s < qSheets.length; s++) {
-       var sheet = ss.getSheetByName(qSheets[s]);
-       if (!sheet) continue;
-       var data = sheet.getDataRange().getValues();
-       var qModified = false;
-       for (var r = 0; r < data.length; r++) {
-          for (var c = 0; c < data[r].length; c++) {
-             if (String(data[r][c]).trim().toLowerCase() === oldLower) {
-                stats.qSheets++;
-                if (!isDryRun) {
-                   data[r][c] = newTrim;
-                   qModified = true;
-                }
-             }
-          }
-       }
-       if (qModified) {
-          sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
-       }
-    }
-    
-    if (!isDryRun && stats.workersSheet > 0) {
-       syncRosters();
-    }
-    
-    return { success: true, stats: stats };
+    return executeWithLockAndRetry_('renameWorker', function() {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var oldLower = String(oldName).trim().toLowerCase();
+      var newTrim = String(newName).trim();
+      if (!oldLower || !newTrim) return { success: false, error: 'Invalid names' };
+      
+      var stats = { workersSheet: 0, qSheets: 0 };
+      var isDryRun = options && options.dryRun;
+      
+      // 1. Rename in Workers tab
+      var wSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
+      var wSchema = getWorkerSchema(wSheet);
+      if (wSchema && wSchema.nameCols.length > 0) {
+         var wData = wSheet.getDataRange().getValues();
+         var wCol = wSchema.nameCols[0];
+         var wModified = false;
+         for (var r = 2; r < wData.length; r++) {
+            var n = String(wData[r][wCol]).trim().toLowerCase();
+            if (n === oldLower) {
+               stats.workersSheet++;
+               if (!isDryRun) {
+                  wData[r][wCol] = newTrim;
+                  wModified = true;
+               }
+            }
+         }
+         if (wModified) {
+            wSheet.getRange(1, 1, wData.length, wData[0].length).setValues(wData);
+         }
+      }
+      
+      // 2. Rename in Q1-Q4 sheets
+      var qSheets = CONFIG.QUARTERS;
+      for (var s = 0; s < qSheets.length; s++) {
+         var sheet = ss.getSheetByName(qSheets[s]);
+         if (!sheet) continue;
+         var data = sheet.getDataRange().getValues();
+         var qModified = false;
+         for (var r = 0; r < data.length; r++) {
+            for (var c = 0; c < data[r].length; c++) {
+               if (String(data[r][c]).trim().toLowerCase() === oldLower) {
+                  stats.qSheets++;
+                  if (!isDryRun) {
+                     data[r][c] = newTrim;
+                     qModified = true;
+                  }
+               }
+            }
+         }
+         if (qModified) {
+            sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
+         }
+      }
+      
+      if (!isDryRun && stats.workersSheet > 0) {
+         syncRosters();
+      }
+      
+      return { success: true, stats: stats };
+    });
   } catch(e) {
     return { success: false, error: e.toString() };
   }
@@ -5614,7 +5717,7 @@ function seedRoleConfigSheet(ss) {
   var headers = ['role_key', 'label_en', 'label_zh', 'day_type', 'section', 'q_column', 'template_row', 'team_sources', 'slots', 'required', 'requires_qual', 'enabled'];
   var rows = [
     // Saturday AM
-    ['SAT_AM_PRAYER', 'Prayer', '禱告', 'SAT', 'AM', 'J', 8, 'Prayer, 禱告', 1, 'Y', '', 'Y'],
+    ['SAT_AM_PRAYER', 'Prayer', '禱告', 'SAT', 'AM', 'K', 8, 'Prayer, 禱告', 1, 'Y', '', 'Y'],
     ['SAT_AM_PRAISE', 'Praise', '詩頌', 'SAT', 'AM', 'D', 9, 'Hymn Leader, 詩頌', 1, 'Y', '', 'Y'],
     ['SAT_AM_PIANIST', 'Accompanist', '司琴', 'SAT', 'AM', 'E', 10, 'Pianist, 司琴', 1, 'Y', 'PIANO', 'Y'],
     ['SAT_AM_SERMON', 'Sermon', '講道', 'SAT', 'AM', 'AY', 11, 'Speaker', 1, 'Y', 'SPEAK', 'Y'],
@@ -5623,7 +5726,7 @@ function seedRoleConfigSheet(ss) {
     ['SAT_AM_AV2', 'A/V 2', '視聽 2', 'SAT', 'AM', 'I', 14, 'AV, 視聽', 1, 'Y', '', 'Y'],
     ['SAT_AM_USHER1', 'Usher 1', '接待 1', 'SAT', 'AM', 'F', 15, 'Usher, 接待', 1, 'Y', '', 'Y'],
     ['SAT_AM_USHER2', 'Usher 2', '接待 2', 'SAT', 'AM', 'G', 15, 'Usher, 接待', 1, 'Y', '', 'Y'],
-    ['SAT_AM_GRACE', 'Grace', '謝飯', 'SAT', 'AM', 'K', 16, 'Grace, 謝飯', 1, 'Y', '', 'Y'],
+    ['SAT_AM_GRACE', 'Grace', '謝飯', 'SAT', 'AM', 'J', 16, 'Grace, 謝飯', 1, 'Y', '', 'Y'],
     // Saturday PM
     ['SAT_PM_PRAYER', 'Prayer', '禱告', 'SAT', 'PM', 'X', 19, 'Prayer, 禱告', 1, 'Y', '', 'Y'],
     ['SAT_PM_PRAISE', 'Praise', '詩頌', 'SAT', 'PM', 'D', 20, 'Hymn Leader, 詩頌', 1, 'Y', '', 'Y'],
@@ -6125,13 +6228,16 @@ function auditUpcomingMonthMissingSlots() {
     var cHeaders = cData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
     var nameIdx = cHeaders.indexOf('name');
     var emailIdx = cHeaders.indexOf('email');
-    var roleIdx = cHeaders.indexOf('role');
+    var roleIdx = cHeaders.indexOf('role_en') !== -1 ? cHeaders.indexOf('role_en') : cHeaders.indexOf('role');
     var qColsIdx = cHeaders.indexOf('q_columns');
-    var enabledIdx = cHeaders.indexOf('enabled');
+    var enabledIdx = cHeaders.indexOf('include_in_email') !== -1 ? cHeaders.indexOf('include_in_email') : cHeaders.indexOf('enabled');
     
     for (var cr = 1; cr < cData.length; cr++) {
       var cRow = cData[cr];
-      if (enabledIdx !== -1 && String(cRow[enabledIdx] || '').trim().toUpperCase() === 'N') continue;
+      if (enabledIdx !== -1) {
+        var incFlag = String(cRow[enabledIdx] || '').trim().toUpperCase();
+        if (incFlag === 'N' || incFlag === 'NO' || incFlag === 'FALSE') continue;
+      }
       var cName = (nameIdx !== -1) ? String(cRow[nameIdx] || '').trim() : '';
       var cEmail = (emailIdx !== -1) ? String(cRow[emailIdx] || '').trim() : '';
       var cRole = (roleIdx !== -1) ? String(cRow[roleIdx] || '').trim() : '';
@@ -6147,7 +6253,7 @@ function auditUpcomingMonthMissingSlots() {
           var cleanTok = tok.trim().toUpperCase();
           if (cleanTok.match(/^[A-Z]+$/)) {
             var colIdx = colLetterToIdx_(cleanTok); // 1-indexed
-            colToCoord[colIdx] = coordObj;
+            if (!colToCoord[colIdx]) colToCoord[colIdx] = coordObj;
           }
         });
       }

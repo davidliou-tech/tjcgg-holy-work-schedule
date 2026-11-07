@@ -1,5 +1,48 @@
 # Release Notes — Holy Work Schedule System
 
+## [v2027.10.0] — 2026-11-06
+
+### 🚀 Overview
+Release `v2027.10.0` completes the comprehensive full-stack architectural audit and live spreadsheet remediation across all four 2027 workbooks (`2027 Holy Work Schedule`, `2027 Holy Work Unavailability`, `2027 Sermon Topic & Hymns`, and `2027 GG ESSC Schedule`). Full details are documented in [`ARCHITECTURAL_AUDIT_REPORT_2027.md`](ARCHITECTURAL_AUDIT_REPORT_2027.md).
+
+### 🔴 Critical Runtime, Concurrency & Live Sheet Fixes
+1. **Live `Team Emails` & `Usher Team Emails` Formula Restoration (`#ERROR!` Fix)**:
+   - Fixed corrupted `Workers!$1$3:$F` / `Workers!L4:L` formulas across all 36 columns of `Team Emails` and both columns of `Usher Team Emails` in `2027 Holy Work Schedule` (restored to `Workers!$F$3:$F`, `Workers!L3:L="Active"`, `Workers!<Col>3:<Col>=TRUE`).
+   - Hardened `repair2027LiveSpreadsheets()` in [`Admin_Tools.js`](Admin_Tools.js) using function replacers to prevent `$1` regex capture-group corruption.
+2. **Shared Drive Null-Owner Protection (`isAdminUser`)**:
+   - Fixed `TypeError: Cannot read properties of null (reading 'getEmail')` in [`Admin_Tools.js`](Admin_Tools.js) when `ss.getOwner()` returns `null` on Google Shared Drive files (`0ABVpJUswSZTNUk9PVA`), with fallback to `APP_CONFIG.AUTHORIZED_EDITORS`.
+3. **ESSC `Rosters` Dynamic Header Detection (`getTeamsAndWorkers` & `extractRostersFromMasterWorkers`)**:
+   - Fixed `getTeamsAndWorkers()` in [`Admin_Tools.js`](Admin_Tools.js) (`isRosters === true`) to detect `=COUNTA(...)` numeric counts in Row 1 and read team headers from Row 2.
+   - Rewrote `extractRostersFromMasterWorkers()` in [`GenerateESSC.js`](GenerateESSC.js) to use `detectWorkersHeaderRow_(data)` and dynamic header name matching instead of hardcoded 1-based column indices.
+4. **Eliminated Global Namespace Collision (`letterToColumnIndex`)**:
+   - Renamed the 0-based `letterToColumnIndex` helper in [`Service_Reminders.js`](Service_Reminders.js) to `letterToColIdx0_()`, preventing it from colliding with the 1-based `letterToColumnIndex` in [`GenerateMonthly.js`](GenerateMonthly.js).
+5. **Comprehensive `LockService` Concurrency & TOCTOU Hardening**:
+   - Fixed TOCTOU in `assignWorkerExact()` ([`Admin_Tools.js`](Admin_Tools.js)) by acquiring `LockService.getScriptLock()` *before* reading `cell.getDataValidation()`, respecting `rule.getAllowInvalid()`, and calling `SpreadsheetApp.flush()` before `bumpQuarterVersion()`.
+   - Added `LockService.getScriptLock()`, `SpreadsheetApp.flush()`, and `bumpQuarterVersion()` to `assignESSCWorker()` in [`GenerateESSC.js`](GenerateESSC.js).
+   - Wrapped `syncSWRSpeakers`, `applyDataValidation`, `applyValidationForESSC`, `syncRosters`, `commitWorkerImport`, `setWorkerStatus`, and `renameWorker` in `executeWithLockAndRetry_()`.
+   - Protected `onEdit()` audit logging to `MonthlyOverridesLog` with a 2-second lock.
+
+### ⚡ Quota & Performance Optimizations
+1. **Batch `MasterConfig` Updates & In-Memory A1 Coordinate Parsing (`GenerateESSC.js`)**:
+   - Replaced per-key `updateOrAppendConfigRow()` loops in `promptSetESSCDates()` and `resolveGridSpeakerPlaceholders()` with single-pass `batchUpdateOrAppendConfigRows_()`.
+   - Replaced `targetSheet.getRange(a1).getRow()/getColumn()` inside `generateESSCForSeason()` with pure in-memory `parseA1Coords_(a1)` in [`AppConfig.js`](AppConfig.js) (eliminating 80+ RPCs).
+2. **Memoized Cross-Workbook RE Schedule Parsing (`SyncRESchedules.js`)**:
+   - Added `_reParsedScheduleCache` and consolidated two `.getRange().getValues()` reads per tab into a single `sheet.getDataRange().getValues()` call in `fetchREDataForDates()`, reducing external workbook reads by **87.5%** across `Q1`–`Q4`.
+3. **2D Batch Writes (`Validation.js`, `Service_Reminders.js`, `GenerateMonthly.js`)**:
+   - Replaced per-row `clearDataValidations()` loops in `applyValidationForESSC()` with a single 2D `setDataValidations(spkRulesMatrix)` call.
+   - Replaced per-row `setBackground()` loops in `flushEmailLogs()` with a single `setBackgrounds(bgMatrix)` call.
+   - Batched weekly cleaning header and date writes in `generateMonthlySheet()`.
+
+### 📋 Schema & Cross-File Integrity
+1. **Harmonized Columns `J` (Lunch Grace) & `K` (Morning Prayer)**:
+   - Fixed inverted `J` and `K` defaults in `ensureValidationConfigSheet()` ([`Validation.js`](Validation.js)), `createDefaultConfigSheet()` ([`GenerateMonthly.js`](GenerateMonthly.js)), and `seedRoleConfigSheet()` ([`Admin_Tools.js`](Admin_Tools.js)) to match live `Q1`–`Q4`, `ValidationConfig`, and `MappingConfig`.
+2. **Cleaning Team Fallbacks (`AL`–`AU`) & ESSC Team Aliases**:
+   - Populated blank `ValidationConfig!C23:C32` (`AL`–`AU`) on live `2027 Holy Work Schedule` and added `VALIDATION_TEAM_ALIASES_`, `inferCleaningFallbackTeams_()`, and `expandTeamSearchKeys_()` in [`Validation.js`](Validation.js).
+3. **Updated 2027 Default Spreadsheet & Folder IDs**:
+   - Updated [`AppConfig.js`](AppConfig.js), [`Admin_Tools.js`](Admin_Tools.js), and [`Service_Reminders.js`](Service_Reminders.js) to reference the 2027 Google Drive folder (`1sH-ELkxwRLB78ts2rJeTpPmYtDY8KfzE`) and 2027 spreadsheets.
+
+---
+
 ## [v2027.9.0] — 2026-11-06
 
 ### 🚀 Overview

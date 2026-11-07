@@ -10,11 +10,15 @@
 var TEMPLATE_SHEET_NAME = "MonthlyTemplate";
 var CLEANING_START_COLUMN = 3; // 3 = Column C. Change to 2 for Col B, 4 for Col D, etc.
 
-// Add the Google account emails of the admins allowed to edit the generated sheets.
-var AUTHORIZED_EDITORS = ["david.liou@tjc.org", "anthony.tsai@tjc.org", "gg.info@tjc.org", "jessica.chen@tjc.org", "anthony.chang@tjc.org", "jessica.jeh.chen@gmail.com"]; 
+// Reference centralized APP_CONFIG constants with fallback
+var AUTHORIZED_EDITORS = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.AUTHORIZED_EDITORS)
+  ? APP_CONFIG.AUTHORIZED_EDITORS
+  : ["david.liou@tjc.org", "anthony.tsai@tjc.org", "gg.info@tjc.org", "jessica.chen@tjc.org", "anthony.chang@tjc.org", "jessica.jeh.chen@gmail.com"];
 
-// URL for the external Bible Reading Plan spreadsheet
-var BIBLE_PLAN_URL = "https://docs.google.com/spreadsheets/d/1Omlqzklhiw7I1Wyp-5tgxuVZQdUlszZEufPh5O5zCpM/edit";
+var BIBLE_PLAN_URL = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.BIBLE_PLAN_URL)
+  ? APP_CONFIG.BIBLE_PLAN_URL
+  : "https://docs.google.com/spreadsheets/d/1Omlqzklhiw7I1Wyp-5tgxuVZQdUlszZEufPh5O5zCpM/edit";
+
 
 // =========================================================================
 // MENU & UI
@@ -527,10 +531,15 @@ function generateMonthlySheet(year, month, options) {
         var col1DateStr = satFirst ? (satDateItem ? satDateItem.label : "") : (friDateItem ? friDateItem.label : "");
         var col2DateStr = satFirst ? (friDateItem ? friDateItem.label : "") : (satDateItem ? satDateItem.label : "");
         
-        newSheet.getRange(cleaningHeaderRow, pairBaseCol).setValue(col1Name);
-        newSheet.getRange(cleaningHeaderRow, pairBaseCol + 1).setValue(col2Name);
-        newSheet.getRange(cleaningDateRow, pairBaseCol).setValue(col1DateStr);
-        newSheet.getRange(cleaningDateRow, pairBaseCol + 1).setValue(col2DateStr);
+        if (cleaningDateRow === cleaningHeaderRow + 1) {
+          newSheet.getRange(cleaningHeaderRow, pairBaseCol, 2, 2).setValues([
+            [col1Name, col2Name],
+            [col1DateStr, col2DateStr]
+          ]);
+        } else {
+          newSheet.getRange(cleaningHeaderRow, pairBaseCol, 1, 2).setValues([[col1Name, col2Name]]);
+          newSheet.getRange(cleaningDateRow, pairBaseCol, 1, 2).setValues([[col1DateStr, col2DateStr]]);
+        }
       } else {
         // Clear week 5 headers and dates if month only has 4 weeks
         newSheet.getRange(cleaningHeaderRow, pairBaseCol, 2, 2).clearContent();
@@ -904,7 +913,7 @@ function createDefaultConfigSheet(ss) {
   
   if (isGG) {
     defaultData = [
-      ["SAT", "PRAYER", "AM", "J", 8],
+      ["SAT", "PRAYER", "AM", "K", 8],
       ["SAT", "PRAISE", "AM", "D", 9],
       ["SAT", "ACCOMPANIST", "AM", "E", 10],
       ["SAT", "SERMON", "AM", "AY", 11],
@@ -913,7 +922,7 @@ function createDefaultConfigSheet(ss) {
       ["SAT", "A/V 2", "AM", "I", 14],
       ["SAT", "USHER 1", "AM", "F", 15],
       ["SAT", "USHER 2", "AM", "G", 15],
-      ["SAT", "GRACE", "AM", "K", 16],
+      ["SAT", "GRACE", "AM", "J", 16],
       ["SAT", "PRAYER", "PM", "X", 19],
       ["SAT", "PRAISE", "PM", "D", 20],
       ["SAT", "ACCOMPANIST", "PM", "E", 21],

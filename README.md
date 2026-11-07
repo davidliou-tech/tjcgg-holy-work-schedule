@@ -1,7 +1,7 @@
 # Holy Work Schedule (HWS) System
 
 > **Architecture:** Google Apps Script (V8 Runtime) + Multi-Church Cloud Engine  
-> **Target Release:** `v2027.9.0` (Production Hardened & Audited)  
+> **Target Release:** `v2027.10.0` (Production Hardened & Audited)  
 > **Deployment Tooling:** Google Clasp (`.clasp.json`) + Git / GitHub  
 > **Master Calendar Standard:** Universal 14-Row Architecture (Rows 1–94, Columns A–AY)
 
@@ -49,7 +49,7 @@ flowchart TD
 ├── .clasp.json                                # Apps Script project deployment binding
 ├── .claspignore                               # Production filter preventing test file deployments
 ├── appsscript.json                            # Manifest with explicit OAuth permission scopes & America/Los_Angeles TZ
-├── AppConfig.js                               # Global configuration constants and folder IDs
+├── AppConfig.js                               # Global configuration constants, AppLogger, parseA1Coords_, Lock/Retry engine
 ├── Admin_Tools.js                             # Sidebar backend, Annual Rollover, Unavailability sync, Admin tools
 ├── GenerateMonthly.js                         # Monthly printout engine, Bible reading plan injector
 ├── Service_Reminders.js                       # Monday / Friday / Saturday automated HTML email reminders
@@ -60,6 +60,7 @@ flowchart TD
 ├── Validation.js                              # Programmatic dropdown validation and rule compilation
 ├── Sidebar.html                               # Coordinator Scheduling Assistant sidebar frontend
 ├── SetupWizard.html                           # Multi-step annual rollover and setup UI
+├── ARCHITECTURAL_AUDIT_REPORT_2027.md         # Standalone comprehensive 2027 code & architecture audit report
 ├── AUDIT_SUMMARY.md                           # Comprehensive technical audit log and remediation table
 ├── RELEASE_NOTES.md                           # Release changelog and version history
 ├── Admin_Guide.md                             # Technical administrator operations manual

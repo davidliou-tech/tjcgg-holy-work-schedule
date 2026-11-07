@@ -66,7 +66,10 @@ function getSermonTopicsSheetUrl() {
     }
   } catch (e) { console.error(e); }
   
-  // 4. Default fallback: log warning and return empty string or SHEET_URL
+  // 4. Default fallback: check APP_CONFIG.DEFAULT_SERMON_TOPICS_ID or return SHEET_URL
+  if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.DEFAULT_SERMON_TOPICS_ID) {
+    return "https://docs.google.com/spreadsheets/d/" + APP_CONFIG.DEFAULT_SERMON_TOPICS_ID + "/edit";
+  }
   console.warn("Configuration resolution notice: Sermon Topics Sheet URL not found.");
   return SHEET_URL || "";
 }
@@ -180,7 +183,7 @@ var COL = {
 };
 
 // Helper: Convert column letter to 0-indexed column number
-function letterToColumnIndex(letter) {
+function letterToColIdx0_(letter) {
   var col = 0;
   var len = letter.length;
   for (var i = 0; i < len; i++) {
@@ -213,7 +216,7 @@ function loadColMappingsFromConfig() {
       var masterColStr = String(data[i][3] || "").trim().toUpperCase();
       if (!dayType || !masterColStr) continue;
 
-      var colIdx = letterToColumnIndex(masterColStr);
+      var colIdx = letterToColIdx0_(masterColStr);
       if (colIdx < 0) continue;
 
       // Saturday Cleaning
@@ -467,19 +470,19 @@ function flushEmailLogs() {
     var range = logSheet.getRange(startRow, 1, numRows, 4);
     range.setValues(logBuffer);
 
+    var bgDanger = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.THEME) ? APP_CONFIG.THEME.ACCENT_DANGER : "#FFDCE0";
+    var bgWarn = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.THEME) ? APP_CONFIG.THEME.ACCENT_WARNING : "#FFF8DC";
+    var bgSuccess = (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.THEME) ? APP_CONFIG.THEME.ACCENT_SUCCESS : "#E2F0D9";
+    var bgMatrix = [];
     for (var i = 0; i < numRows; i++) {
       var level = logBuffer[i][1];
-      var rowRange = logSheet.getRange(startRow + i, 1, 1, 4);
-      if (level === "ERROR") {
-        rowRange.setBackground(typeof APP_CONFIG !== 'undefined' && APP_CONFIG.THEME ? APP_CONFIG.THEME.ACCENT_DANGER : "#FFDCE0");
-      } else if (level === "WARN") {
-        rowRange.setBackground(typeof APP_CONFIG !== 'undefined' && APP_CONFIG.THEME ? APP_CONFIG.THEME.ACCENT_WARNING : "#FFF8DC");
-      } else if (level === "SENT") {
-        rowRange.setBackground(typeof APP_CONFIG !== 'undefined' && APP_CONFIG.THEME ? APP_CONFIG.THEME.ACCENT_SUCCESS : "#E2F0D9");
-      } else {
-        rowRange.setBackground("#FFFFFF");
-      }
+      var color = "#FFFFFF";
+      if (level === "ERROR") color = bgDanger;
+      else if (level === "WARN") color = bgWarn;
+      else if (level === "SENT") color = bgSuccess;
+      bgMatrix.push([color, color, color, color]);
     }
+    range.setBackgrounds(bgMatrix);
     
     logBuffer.length = 0;
   } catch (err) {

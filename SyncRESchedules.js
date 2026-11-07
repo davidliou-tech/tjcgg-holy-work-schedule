@@ -265,130 +265,126 @@ function getDatesFromHWS(sheet) {
  * Features DYNAMIC column detection.
  */
 const _reSpreadsheetCache = {};
+const _reParsedScheduleCache = {};
 
 function fetchREDataForDates(spreadsheetId, config, targetDateStrings) {
-  const sourceSs = _reSpreadsheetCache[spreadsheetId] || (_reSpreadsheetCache[spreadsheetId] = SpreadsheetApp.openById(spreadsheetId));
-  const sheets = sourceSs.getSheets();
-  const scheduleData = {};
-  
-  for (const sheet of sheets) {
-    const sheetNameLower = sheet.getName().toLowerCase();
-    if (sheetNameLower.includes('summary') || 
-        sheetNameLower.includes('workers') ||
-        sheetNameLower.includes('teams') ||
-        sheetNameLower.includes('log')) {
-      continue;
-    }
-    
-    const lastRow = sheet.getLastRow();
-    const lastCol = sheet.getLastColumn();
-    
-    if (lastRow < 2) continue;
-    
-    // --- DYNAMIC COLUMN DETECTION ---
-    let dynamicConfig = { ...config };
-    let headerRowIdx = -1;
-    const searchRows = Math.min(15, lastRow);
-    const topData = sheet.getRange(1, 1, searchRows, lastCol).getValues();
-    
-    // 1. Search the first 15 rows to find the row containing 'Teacher'
-    for (let r = 0; r < searchRows; r++) {
-      const rowStrings = topData[r].map(c => String(c).toLowerCase().trim());
-      if (rowStrings.some(c => c.includes('teacher'))) {
-        headerRowIdx = r;
-        break;
-      }
-    }
-    
-    // 2. If we found the header row, dynamically map columns
-    if (headerRowIdx !== -1) {
-      const periodRowIdx = Math.max(0, headerRowIdx - 1);
-      const periodRow = topData[periodRowIdx].map(c => String(c).toLowerCase().trim());
-      const headerRow = topData[headerRowIdx].map(c => String(c).toLowerCase().trim());
-      
-      let currentPeriod = null;
-      let dateCol = null;
-      let amTeacherCol = null, amAssistantCol = null;
-      let pmTeacherCol = null, pmAssistantCol = null;
-      
-      for (let c = 0; c < lastCol; c++) {
-        const pVal = periodRow[c];
-        const hVal = headerRow[c];
-        
-        // Update current period based on merged headers
-        if (pVal.includes('morning') || pVal.includes('am')) {
-          currentPeriod = 'AM';
-        } else if (pVal.includes('afternoon') || pVal.includes('pm')) {
-          currentPeriod = 'PM';
-        }
-        
-        // Handle vertically merged 'Date' cell
-        if (hVal === 'date' || hVal === 'class date' || pVal === 'date' || pVal === 'class date') {
-          dateCol = c + 1; // 1-indexed
-        } else if (hVal === 'teacher' || hVal === 'teachers' || hVal === 'lead teacher') {
-          if (currentPeriod === 'AM') {
-            amTeacherCol = c + 1;
-          } else if (currentPeriod === 'PM') {
-            pmTeacherCol = c + 1;
-          } else {
-            // Fallback: If no period found, rely on original config's expectations
-            if (config.amTeacherCol && !amTeacherCol) {
-              amTeacherCol = c + 1;
-            } else if (config.pmTeacherCol && !pmTeacherCol) {
-              pmTeacherCol = c + 1;
-            }
-          }
-        } else if (hVal.includes('assistant') || hVal === 'ta' || hVal === 'teaching assistant') {
-          if (currentPeriod === 'AM') {
-            amAssistantCol = c + 1;
-          } else if (currentPeriod === 'PM') {
-            pmAssistantCol = c + 1;
-          } else {
-            if (config.amAssistantCol && !amAssistantCol) {
-              amAssistantCol = c + 1;
-            } else if (config.pmAssistantCol && !pmAssistantCol) {
-              pmAssistantCol = c + 1;
-            }
-          }
-        }
-      }
-      
-      // Update dynamic config with found columns
-      if (dateCol) dynamicConfig.dateCol = dateCol;
-      if (amTeacherCol !== null) dynamicConfig.amTeacherCol = amTeacherCol;
-      if (pmTeacherCol !== null) dynamicConfig.pmTeacherCol = pmTeacherCol;
-      if (amAssistantCol !== null) dynamicConfig.amAssistantCol = amAssistantCol;
-      if (pmAssistantCol !== null) dynamicConfig.pmAssistantCol = pmAssistantCol;
-      
-      // Auto-Adjust startRow to skip the headers entirely
-      if (dynamicConfig.startRow <= headerRowIdx + 1) {
-        dynamicConfig.startRow = headerRowIdx + 2; 
-      }
-    }
-    // --- END DYNAMIC COLUMN DETECTION ---
+  let allDatesMap = _reParsedScheduleCache[spreadsheetId];
 
-    if (lastRow < dynamicConfig.startRow || lastCol < dynamicConfig.dateCol) continue;
+  if (!allDatesMap) {
+    allDatesMap = {};
+    const sourceSs = _reSpreadsheetCache[spreadsheetId] || (_reSpreadsheetCache[spreadsheetId] = SpreadsheetApp.openById(spreadsheetId));
+    const sheets = sourceSs.getSheets();
     
-    const data = sheet.getRange(dynamicConfig.startRow, 1, lastRow - dynamicConfig.startRow + 1, lastCol).getValues();
-    
-    for (const row of data) {
-      const dateVal = row[dynamicConfig.dateCol - 1]; 
-      let dateObj = null;
+    for (const sheet of sheets) {
+      const sheetNameLower = sheet.getName().toLowerCase();
+      if (sheetNameLower.includes('summary') || 
+          sheetNameLower.includes('workers') ||
+          sheetNameLower.includes('teams') ||
+          sheetNameLower.includes('log')) {
+        continue;
+      }
       
-      if (dateVal instanceof Date) {
-        dateObj = dateVal;
-      } else if (typeof dateVal === 'string' && dateVal.includes('/')) {
-        const parsed = Date.parse(dateVal);
-        if (!isNaN(parsed)) {
-          dateObj = new Date(parsed);
+      const fullData = sheet.getDataRange().getValues();
+      const lastRow = fullData.length;
+      const lastCol = lastRow > 0 ? fullData[0].length : 0;
+      
+      if (lastRow < 2 || lastCol < 1) continue;
+      
+      // --- DYNAMIC COLUMN DETECTION ---
+      let dynamicConfig = { ...config };
+      let headerRowIdx = -1;
+      const searchRows = Math.min(15, lastRow);
+      
+      // 1. Search the first 15 rows in-memory to find the row containing 'Teacher'
+      for (let r = 0; r < searchRows; r++) {
+        const rowStrings = fullData[r].map(c => String(c).toLowerCase().trim());
+        if (rowStrings.some(c => c.includes('teacher'))) {
+          headerRowIdx = r;
+          break;
         }
       }
       
-      if (dateObj) {
-        const dateStr = formatDate(dateObj);
+      // 2. If we found the header row, dynamically map columns
+      if (headerRowIdx !== -1) {
+        const periodRowIdx = Math.max(0, headerRowIdx - 1);
+        const periodRow = fullData[periodRowIdx].map(c => String(c).toLowerCase().trim());
+        const headerRow = fullData[headerRowIdx].map(c => String(c).toLowerCase().trim());
         
-        if (targetDateStrings.includes(dateStr)) {
-          scheduleData[dateStr] = {
+        let currentPeriod = null;
+        let dateCol = null;
+        let amTeacherCol = null, amAssistantCol = null;
+        let pmTeacherCol = null, pmAssistantCol = null;
+        
+        for (let c = 0; c < lastCol; c++) {
+          const pVal = periodRow[c];
+          const hVal = headerRow[c];
+          
+          if (pVal.includes('morning') || pVal.includes('am')) {
+            currentPeriod = 'AM';
+          } else if (pVal.includes('afternoon') || pVal.includes('pm')) {
+            currentPeriod = 'PM';
+          }
+          
+          if (hVal === 'date' || hVal === 'class date' || pVal === 'date' || pVal === 'class date') {
+            dateCol = c + 1; // 1-indexed
+          } else if (hVal === 'teacher' || hVal === 'teachers' || hVal === 'lead teacher') {
+            if (currentPeriod === 'AM') {
+              amTeacherCol = c + 1;
+            } else if (currentPeriod === 'PM') {
+              pmTeacherCol = c + 1;
+            } else {
+              if (config.amTeacherCol && !amTeacherCol) {
+                amTeacherCol = c + 1;
+              } else if (config.pmTeacherCol && !pmTeacherCol) {
+                pmTeacherCol = c + 1;
+              }
+            }
+          } else if (hVal.includes('assistant') || hVal === 'ta' || hVal === 'teaching assistant') {
+            if (currentPeriod === 'AM') {
+              amAssistantCol = c + 1;
+            } else if (currentPeriod === 'PM') {
+              pmAssistantCol = c + 1;
+            } else {
+              if (config.amAssistantCol && !amAssistantCol) {
+                amAssistantCol = c + 1;
+              } else if (config.pmAssistantCol && !pmAssistantCol) {
+                pmAssistantCol = c + 1;
+              }
+            }
+          }
+        }
+        
+        if (dateCol) dynamicConfig.dateCol = dateCol;
+        if (amTeacherCol !== null) dynamicConfig.amTeacherCol = amTeacherCol;
+        if (pmTeacherCol !== null) dynamicConfig.pmTeacherCol = pmTeacherCol;
+        if (amAssistantCol !== null) dynamicConfig.amAssistantCol = amAssistantCol;
+        if (pmAssistantCol !== null) dynamicConfig.pmAssistantCol = pmAssistantCol;
+        
+        if (dynamicConfig.startRow <= headerRowIdx + 1) {
+          dynamicConfig.startRow = headerRowIdx + 2; 
+        }
+      }
+      // --- END DYNAMIC COLUMN DETECTION ---
+
+      if (lastRow < dynamicConfig.startRow || lastCol < dynamicConfig.dateCol) continue;
+      
+      for (let r = dynamicConfig.startRow - 1; r < lastRow; r++) {
+        const row = fullData[r];
+        const dateVal = row[dynamicConfig.dateCol - 1]; 
+        let dateObj = null;
+        
+        if (dateVal instanceof Date) {
+          dateObj = dateVal;
+        } else if (typeof dateVal === 'string' && dateVal.includes('/')) {
+          const parsed = Date.parse(dateVal);
+          if (!isNaN(parsed)) {
+            dateObj = new Date(parsed);
+          }
+        }
+        
+        if (dateObj) {
+          const dateStr = formatDate(dateObj);
+          allDatesMap[dateStr] = {
             amTeacher: dynamicConfig.amTeacherCol ? row[dynamicConfig.amTeacherCol - 1] : '',
             amAssistant: dynamicConfig.amAssistantCol ? row[dynamicConfig.amAssistantCol - 1] : '',
             pmTeacher: dynamicConfig.pmTeacherCol ? row[dynamicConfig.pmTeacherCol - 1] : '',
@@ -397,8 +393,15 @@ function fetchREDataForDates(spreadsheetId, config, targetDateStrings) {
         }
       }
     }
+    _reParsedScheduleCache[spreadsheetId] = allDatesMap;
   }
-  
+
+  const scheduleData = {};
+  for (const dateStr of targetDateStrings) {
+    if (allDatesMap[dateStr]) {
+      scheduleData[dateStr] = allDatesMap[dateStr];
+    }
+  }
   return scheduleData;
 }
 

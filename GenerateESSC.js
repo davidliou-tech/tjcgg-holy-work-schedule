@@ -180,25 +180,26 @@ function promptSetESSCDates() {
   if (fallResp.getSelectedButton() !== ui.Button.OK) return;
   var fallDateStr = fallResp.getResponseText().trim() || defaultFall;
   
-  // 1. Save to Master HWS MasterConfig
+  var dateConfigBatch = {
+    "SPRING_ESSC_WEDNESDAY_START": springDateStr,
+    "SPRING_WEDNESDAY_START_DATE": springDateStr,
+    "FALL_ESSC_WEDNESDAY_START": fallDateStr,
+    "FALL_WEDNESDAY_START_DATE": fallDateStr
+  };
+
+  // 1. Save to Master HWS MasterConfig in a single batch read/write
   var masterMc = masterSs.getSheetByName(ESSC_CONFIG.MASTER_CONFIG_SHEET);
   if (masterMc) {
-    updateOrAppendConfigRow(masterMc, "SPRING_ESSC_WEDNESDAY_START", springDateStr);
-    updateOrAppendConfigRow(masterMc, "SPRING_WEDNESDAY_START_DATE", springDateStr);
-    updateOrAppendConfigRow(masterMc, "FALL_ESSC_WEDNESDAY_START", fallDateStr);
-    updateOrAppendConfigRow(masterMc, "FALL_WEDNESDAY_START_DATE", fallDateStr);
+    batchUpdateOrAppendConfigRows_(masterMc, dateConfigBatch);
   }
   
-  // 2. Save to target ESSC MasterConfig
+  // 2. Save to target ESSC MasterConfig in a single batch read/write
   var targetMc = targetSs.getSheetByName(ESSC_CONFIG.MASTER_CONFIG_SHEET);
   if (!targetMc) {
     targetMc = targetSs.insertSheet(ESSC_CONFIG.MASTER_CONFIG_SHEET);
     targetMc.appendRow(["Setting / Parameter", "Value / Description"]);
   }
-  updateOrAppendConfigRow(targetMc, "SPRING_ESSC_WEDNESDAY_START", springDateStr);
-  updateOrAppendConfigRow(targetMc, "SPRING_WEDNESDAY_START_DATE", springDateStr);
-  updateOrAppendConfigRow(targetMc, "FALL_ESSC_WEDNESDAY_START", fallDateStr);
-  updateOrAppendConfigRow(targetMc, "FALL_WEDNESDAY_START_DATE", fallDateStr);
+  batchUpdateOrAppendConfigRows_(targetMc, dateConfigBatch);
   
   // 3. Recalculate grid dates on target ESSC spreadsheet
   recalculateGridDates(targetSs, 'Spring', springDateStr);
@@ -410,19 +411,55 @@ function recalculateGridDates(ss, season, wednesdayDateStr) {
 }
 
 /**
+ * Helper to batch-update multiple key-value pairs in MasterConfig tab in a single read/write pass.
+ */
+function batchUpdateOrAppendConfigRows_(sheet, keyValuesMap) {
+  if (!sheet || !keyValuesMap) return;
+  try { clearMasterConfigCache(sheet.getParent().getId()); } catch(e) {}
+  var data = sheet.getDataRange().getValues();
+  var maxCols = (data.length > 0 && data[0].length > 0) ? Math.max(data[0].length, 2) : 2;
+  var existingIndexByKey = {};
+  for (var i = 1; i < data.length; i++) {
+    var k = String(data[i][0] || "").trim();
+    if (k && existingIndexByKey[k] === undefined) {
+      existingIndexByKey[k] = i;
+    }
+  }
+  var modified = false;
+  var keys = Object.keys(keyValuesMap);
+  for (var j = 0; j < keys.length; j++) {
+    var key = keys[j];
+    var val = keyValuesMap[key];
+    if (existingIndexByKey[key] !== undefined) {
+      var rowIdx = existingIndexByKey[key];
+      if (data[rowIdx][1] !== val) {
+        data[rowIdx][1] = val;
+        modified = true;
+      }
+    } else {
+      var newRow = new Array(maxCols).fill("");
+      newRow[0] = key;
+      newRow[1] = val;
+      data.push(newRow);
+      existingIndexByKey[key] = data.length - 1;
+      modified = true;
+    }
+  }
+  if (modified && data.length > 0) {
+    sheet.getRange(1, 1, data.length, maxCols).setValues(data.map(function(r) {
+      while (r.length < maxCols) r.push("");
+      return r;
+    }));
+  }
+}
+
+/**
  * Helper to update key-value in MasterConfig tab
  */
 function updateOrAppendConfigRow(sheet, key, value) {
-  try { clearMasterConfigCache(sheet.getParent().getId()); } catch(e) {}
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === key) {
-      data[i][1] = value;
-      sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
-      return;
-    }
-  }
-  sheet.appendRow([key, value]);
+  var map = {};
+  map[key] = value;
+  batchUpdateOrAppendConfigRows_(sheet, map);
 }
 
 /**
@@ -619,9 +656,16 @@ function generateESSCForSeason(season, targetSs) {
         var parsedUpdates = [];
         for (var u = 0; u < updates.length; u++) {
           var a1 = updates[u].a1;
-          var range = targetSheet.getRange(a1);
-          var r = range.getRow();
-          var c = range.getColumn();
+          var coords = (typeof parseA1Coords_ === 'function') ? parseA1Coords_(a1) : null;
+          var r, c;
+          if (coords) {
+            r = coords.row;
+            c = coords.col;
+          } else {
+            var range = targetSheet.getRange(a1);
+            r = range.getRow();
+            c = range.getColumn();
+          }
           minRow = Math.min(minRow, r);
           maxRow = Math.max(maxRow, r);
           minCol = Math.min(minCol, c);
@@ -806,17 +850,21 @@ function resolveGridSpeakerPlaceholders(ss) {
     }
   }
 
-  // Update LAST_* tracking keys in MasterConfig to current values
+  // Update LAST_* tracking keys in MasterConfig to current values in a single batch per sheet
   if (mcSheet) {
+    var batchUpdates = {};
     for (var k = 0; k < trackedKeys.length; k++) {
       var tKey = trackedKeys[k];
       var currentVal = getConfigValue(ss, tKey) || (masterSs ? getConfigValue(masterSs, tKey) : "");
       if (currentVal) {
-        updateOrAppendConfigRow(mcSheet, "LAST_" + tKey, currentVal);
-        if (masterSs && masterSs.getId() !== ss.getId()) {
-          var masterMc = masterSs.getSheetByName(ESSC_CONFIG.MASTER_CONFIG_SHEET);
-          if (masterMc) updateOrAppendConfigRow(masterMc, "LAST_" + tKey, currentVal);
-        }
+        batchUpdates["LAST_" + tKey] = currentVal;
+      }
+    }
+    if (Object.keys(batchUpdates).length > 0) {
+      batchUpdateOrAppendConfigRows_(mcSheet, batchUpdates);
+      if (masterSs && masterSs.getId() !== ss.getId()) {
+        var masterMc = masterSs.getSheetByName(ESSC_CONFIG.MASTER_CONFIG_SHEET);
+        if (masterMc) batchUpdateOrAppendConfigRows_(masterMc, batchUpdates);
       }
     }
   }
@@ -1307,25 +1355,53 @@ function ensureRostersSheet(ss, forceSyncFromMaster) {
 }
 
 /**
- * Extracts ministry worker lists from Master HWS Workers tab
+ * Extracts ministry worker lists from Master HWS Workers tab dynamically by header names
  */
 function extractRostersFromMasterWorkers(ws) {
   var data = ws.getDataRange().getValues();
   if (data.length < 3) return null;
-  
-  function getWorkersForCols(colIndices) {
+
+  var detected = (typeof detectWorkersHeaderRow_ === 'function')
+    ? detectWorkersHeaderRow_(data)
+    : { headerRowIdx: 0, dataStartIdx: 2, headers: data[0] };
+  var headers = detected.headers.map(function(h) { return String(h || '').trim().toLowerCase(); });
+  var dataStartIdx = detected.dataStartIdx;
+
+  var firstIdx = headers.indexOf('first name') !== -1 ? headers.indexOf('first name') : 0;
+  var lastIdx = headers.indexOf('last name') !== -1 ? headers.indexOf('last name') : 1;
+  var schedNameIdx = headers.indexOf('schedule name') !== -1 ? headers.indexOf('schedule name') : 4;
+  var activeIdx = headers.indexOf('active') !== -1 ? headers.indexOf('active') : 11;
+
+  function findColsMatching(patterns, fallback1Based) {
+    var matched0Based = [];
+    for (var c = 14; c < headers.length; c++) {
+      var h = headers[c];
+      if (!h) continue;
+      for (var p = 0; p < patterns.length; p++) {
+        if (h === patterns[p] || h.indexOf(patterns[p]) !== -1) {
+          matched0Based.push(c);
+          break;
+        }
+      }
+    }
+    if (matched0Based.length > 0) return matched0Based;
+    return (fallback1Based || []).map(function(idx1) { return idx1 - 1; });
+  }
+
+  function getWorkersForCols0(colIndices0) {
     var workers = [];
-    for (var r = 2; r < data.length; r++) {
+    for (var r = dataStartIdx; r < data.length; r++) {
       var row = data[r];
-      var first = String(row[0] || '').trim();
-      var last = String(row[1] || '').trim();
-      var active = String(row[11] || '').trim();
-      if (!first || active !== 'Active') continue;
+      var first = String(row[firstIdx] || '').trim();
+      var last = String(row[lastIdx] || '').trim();
+      var schedName = String(row[schedNameIdx] || '').trim();
+      var active = String(row[activeIdx] || '').trim();
+      if ((!first && !schedName) || active !== 'Active') continue;
       
-      var fullName = (first + ' ' + last).trim();
+      var fullName = schedName || (first + ' ' + last).trim();
       var assigned = false;
-      for (var c = 0; c < colIndices.length; c++) {
-        var val = row[colIndices[c] - 1];
+      for (var c = 0; c < colIndices0.length; c++) {
+        var val = row[colIndices0[c]];
         if (val === true || val === 'TRUE' || val === 1 || val === '1') {
           assigned = true;
           break;
@@ -1340,14 +1416,14 @@ function extractRostersFromMasterWorkers(ws) {
   }
   
   return {
-    "Speakers": getWorkersForCols([16, 17]),
-    "Interpreters": getWorkersForCols([18, 19]),
-    "Hymn Leaders": getWorkersForCols([20]),
-    "Pianists": getWorkersForCols([21]),
-    "AV": getWorkersForCols([23, 24]),
-    "Ushers": getWorkersForCols([22]),
+    "Speakers": getWorkersForCols0(findColsMatching(['sermon speaker', 'speaker'], [16, 17])),
+    "Interpreters": getWorkersForCols0(findColsMatching(['interpreter'], [18, 19])),
+    "Hymn Leaders": getWorkersForCols0(findColsMatching(['hymn leader', 'praise'], [20])),
+    "Pianists": getWorkersForCols0(findColsMatching(['pianist', 'accompanist'], [21])),
+    "AV": getWorkersForCols0(findColsMatching(['av1', 'av2', 'av', 'av support'], [23, 24])),
+    "Ushers": getWorkersForCols0(findColsMatching(['usher'], [22])),
     "Cleaning": ["Cypress / Buena Park", "Anaheim Hills / Yorba Linda", "Irvine / Lake Forest / Orange", "Agape / EBF / Sisters / Vessel", "R.E. Coordinator"],
-    "Grace": getWorkersForCols([15, 25, 26, 27]),
+    "Grace": getWorkersForCols0(findColsMatching(['council on duty', 'board on duty', 'lunch grace', 'sat. am prayer', 'sat lunch prayer'], [15, 25, 26, 27])),
     "Choir": ["Adult Choir", "Youth Choir", "Children's Choir"]
   };
 }
@@ -1380,7 +1456,7 @@ function writeRostersToSheet(sheet, rosterMap) {
 }
 
 /**
- * Assigns a worker to the selected grid cell
+ * Assigns a worker to the selected ESSC grid cell under ScriptLock
  */
 function assignESSCWorker(sheetName, row, col, workerName) {
   try {
@@ -1392,16 +1468,19 @@ function assignESSCWorker(sheetName, row, col, workerName) {
     }
     const cleanWorker = String(workerName || '').trim().slice(0, 100);
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(sheetName);
-    if (!sheet) return { success: false, error: 'Sheet not found' };
-
-    const lock = LockService.getDocumentLock();
+    const lock = LockService.getScriptLock();
     if (!lock.tryLock(5000)) {
       return { success: false, error: 'Could not obtain lock. Another user may be updating the sheet.' };
     }
     try {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName(sheetName);
+      if (!sheet) return { success: false, error: 'Sheet not found' };
       sheet.getRange(r, c).setValue(cleanWorker);
+      SpreadsheetApp.flush();
+      if (typeof bumpQuarterVersion === 'function') {
+        bumpQuarterVersion(sheetName);
+      }
       return { success: true };
     } finally {
       lock.releaseLock();
