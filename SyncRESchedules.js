@@ -242,8 +242,15 @@ function getDatesFromHWS(sheet) {
       if (val instanceof Date) {
         dateObj = val;
       } else if (typeof val === 'string' && val.includes('/')) {
-        const parsed = Date.parse(val);
-        if (!isNaN(parsed)) dateObj = new Date(parsed);
+        const parts = val.trim().split('/');
+        if (parts.length >= 2) {
+          const m = parseInt(parts[0], 10);
+          const d = parseInt(parts[1], 10);
+          const y = parts.length >= 3 ? parseInt(parts[2], 10) : new Date().getFullYear();
+          if (!isNaN(m) && !isNaN(d) && !isNaN(y)) {
+            dateObj = new Date(y, m - 1, d, 12, 0, 0);
+          }
+        }
       }
 
       if (dateObj) {
@@ -280,7 +287,10 @@ function fetchREDataForDates(spreadsheetId, config, targetDateStrings) {
       if (sheetNameLower.includes('summary') || 
           sheetNameLower.includes('workers') ||
           sheetNameLower.includes('teams') ||
-          sheetNameLower.includes('log')) {
+          sheetNameLower.includes('log') ||
+          sheetNameLower.includes('archive') ||
+          sheetNameLower.includes('template') ||
+          sheetNameLower.includes('old')) {
         continue;
       }
       
@@ -376,9 +386,14 @@ function fetchREDataForDates(spreadsheetId, config, targetDateStrings) {
         if (dateVal instanceof Date) {
           dateObj = dateVal;
         } else if (typeof dateVal === 'string' && dateVal.includes('/')) {
-          const parsed = Date.parse(dateVal);
-          if (!isNaN(parsed)) {
-            dateObj = new Date(parsed);
+          const parts = dateVal.trim().split('/');
+          if (parts.length >= 2) {
+            const m = parseInt(parts[0], 10);
+            const d = parseInt(parts[1], 10);
+            const y = parts.length >= 3 ? parseInt(parts[2], 10) : new Date().getFullYear();
+            if (!isNaN(m) && !isNaN(d) && !isNaN(y)) {
+              dateObj = new Date(y, m - 1, d, 12, 0, 0);
+            }
           }
         }
         

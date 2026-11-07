@@ -51,7 +51,13 @@ function ensureValidationConfigSheet(ss) {
         ["AO", "Sisters Restroom (Chapel Downstairs)", "Sis Bathroom (Shed), Saturday Side Chapel, Saturday Chapel Cleaning"],
         ["AP", "Sisters Restroom (Chapel Downstairs)", "Sis Bathroom (Shed), Saturday Side Chapel, Saturday Chapel Cleaning"],
         ["AQ", "Brothers Restroom (Chapel Upstairs Left)", "Bro Bathroom (Shed), Saturday Chapel Cleaning"],
-        ["AR", "Sisters Restroom (Chapel Upstairs Right)", "Sis Bathroom (Shed), Saturday Side Chapel, Saturday Chapel Cleaning"]
+        ["AR", "Sisters Restroom (Chapel Upstairs Right)", "Sis Bathroom (Shed), Saturday Side Chapel, Saturday Chapel Cleaning"],
+        ["AS", "Joy Fellowship", "Joy Fellowship, 喜樂團契"],
+        ["AT", "Wednesday Study Leader", "Wednesday Night, Wednesday Bible Study, 星期三查經"],
+        ["AU", "Wednesday South (南區)", "Wednesday Night, Wednesday Bible Study, 星期三查經"],
+        ["AV", "Wednesday West (西區)", "Wednesday Night, Wednesday Bible Study, 星期三查經"],
+        ["AW", "Wednesday North (北區)", "Wednesday Night, Wednesday Bible Study, 星期三查經"],
+        ["AX", "Wednesday Agape (愛加倍)", "Wednesday Night, Wednesday Bible Study, 星期三查經"]
       ];
     }
     
@@ -155,24 +161,37 @@ function applyAllValidation() {
     if (allErrors.length > 10) {
       msg += "\n...and " + (allErrors.length - 10) + " more. See Apps Script Execution Log for full details.";
     }
-    SpreadsheetApp.getUi().alert("Validation Completed with Warnings", msg, SpreadsheetApp.getUi().ButtonSet.OK);
+    safeValidationAlert_("Validation Completed with Warnings", msg);
   } else {
-    SpreadsheetApp.getUi().alert("Success! 🎉", "Successfully applied " + totalApplied + " dropdown validation rules across active service slots in Q1, Q2, Q3, and Q4.", SpreadsheetApp.getUi().ButtonSet.OK);
+    safeValidationAlert_("Success! 🎉", "Successfully applied " + totalApplied + " dropdown validation rules across active service slots in Q1, Q2, Q3, and Q4.");
   }
+}
+
+function safeValidationAlert_(title, message) {
+  try {
+    var ui = SpreadsheetApp.getUi();
+    if (ui) {
+      ui.alert(title, message, ui.ButtonSet.OK);
+      return;
+    }
+  } catch (e) {
+    // Non-UI trigger context
+  }
+  console.log("[" + title + "] " + message);
 }
 
 function applyValidationForCurrentSheet() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var name = sheet.getName();
   if (!["Q1","Q2","Q3","Q4"].includes(name)) {
-    SpreadsheetApp.getUi().alert("Please select a quarter sheet (Q1, Q2, Q3, or Q4) first.");
+    safeValidationAlert_("Invalid Selection", "Please select a quarter sheet (Q1, Q2, Q3, or Q4) first.");
     return;
   }
   var res = applyDataValidation(name);
   if (res.errors && res.errors.length > 0) {
-    SpreadsheetApp.getUi().alert("Completed with Warnings", "Applied " + res.applied + " rules to " + name + ", but encountered " + res.errors.length + " errors.\n\nFirst errors:\n" + res.errors.slice(0, 5).join("\n"), SpreadsheetApp.getUi().ButtonSet.OK);
+    safeValidationAlert_("Completed with Warnings", "Applied " + res.applied + " rules to " + name + ", but encountered " + res.errors.length + " errors.\n\nFirst errors:\n" + res.errors.slice(0, 5).join("\n"));
   } else {
-    SpreadsheetApp.getUi().alert("Success! 🎉", "Data validation applied to " + name + " successfully (" + res.applied + " active dropdowns).", SpreadsheetApp.getUi().ButtonSet.OK);
+    safeValidationAlert_("Success! 🎉", "Data validation applied to " + name + " successfully (" + res.applied + " active dropdowns).");
   }
 }
 

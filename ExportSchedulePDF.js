@@ -185,16 +185,17 @@ function exportAndEmailMonthPdf_(ss, sheet, email, recipients) {
   var stamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd HHmm");
   var archived = folder.createFile(pdfBlob.copyBlob().setName(email.fileBaseName + " (sent " + stamp + ").pdf"));
 
-  sendScheduleEmail_(recipients.join(","), email.subject, email, pdfBlob,
-                     Session.getActiveUser().getEmail());
+  var senderEmail = Session.getActiveUser().getEmail();
+  sendScheduleEmail_(senderEmail, email.subject, email, pdfBlob,
+                     senderEmail, recipients.join(","));
 
   if (typeof emailLog === "function") {
-    try { emailLog("INFO", "Schedule PDF emailed: " + email.subject, recipients.join(",")); } catch (e) {}
+    try { emailLog("INFO", "Schedule PDF emailed: " + email.subject, "BCC recipients count: " + recipients.length); } catch (e) {}
   }
   return { fileName: archived.getName(), fileUrl: archived.getUrl(), folderName: folder.getName() };
 }
 
-function sendScheduleEmail_(to, subject, email, pdfBlob, replyTo) {
+function sendScheduleEmail_(to, subject, email, pdfBlob, replyTo, bcc) {
   var options = {
     to: to,
     subject: subject,
@@ -203,6 +204,7 @@ function sendScheduleEmail_(to, subject, email, pdfBlob, replyTo) {
     attachments: [pdfBlob],
     name: email.senderName
   };
+  if (bcc) options.bcc = bcc;
   if (replyTo) options.replyTo = replyTo;
   MailApp.sendEmail(options);
 }
@@ -554,9 +556,7 @@ function getEmailConfigDefaults_() {
     headers: ["tab_name", "url"],
     widths: [160, 760],
     note: "One row per month tab. Paste the link from File > Share > Publish to web for THAT tab only. The script asks for it at send time if the row is missing.",
-    rows: [
-      ["October 2026", "https://docs.google.com/spreadsheets/d/e/2PACX-1vRbbRFpc3cX6Bco8DWq2q0faK5NzDr7MUiKtQxtimbHHv7gB8hRBMLBr9QM_6bQUWx1yIP8acodQWRp/pubhtml?gid=72197419&single=true"]
-    ]
+    rows: []
   };
 
   return defs;
@@ -921,6 +921,9 @@ function syncCoordinatorsToQuarterSheets(ss) {
     
     if (modified) {
       row3Range.setValues([row3Vals]);
+      if (typeof bumpQuarterVersion === 'function') {
+        bumpQuarterVersion(qName);
+      }
     }
   });
   

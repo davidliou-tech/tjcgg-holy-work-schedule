@@ -228,6 +228,10 @@ function generateMonthlySheet(year, month, options) {
   var templateBackgrounds = templateRange.getBackgrounds();
   var placeholderLocations = {};
   
+  var newSheetRange = newSheet.getRange(1, 1, templateValues.length, templateValues[0].length);
+  var newSheetValues = newSheetRange.getValues();
+  var valuesModified = false;
+
   for (var r = 0; r < templateValues.length; r++) {
     for (var c = 0; c < templateValues[r].length; c++) {
       var cellVal = String(templateValues[r][c]);
@@ -238,14 +242,16 @@ function generateMonthlySheet(year, month, options) {
         if (updatedCellVal.indexOf("{{MONTH_YEAR}}") !== -1) {
           var titleStr = getMonthYearTitle(year, month);
           updatedCellVal = updatedCellVal.replace("{{MONTH_YEAR}}", titleStr);
-          newSheet.getRange(r + 1, c + 1).setValue(updatedCellVal);
+          newSheetValues[r][c] = updatedCellVal;
+          valuesModified = true;
         }
 
         // Council Member replacement
         if (updatedCellVal.indexOf("{{COUNCIL_MEMBER}}") !== -1) {
           var councilStr = getCouncilMemberString(ss, month);
           updatedCellVal = updatedCellVal.replace("{{COUNCIL_MEMBER}}", councilStr);
-          newSheet.getRange(r + 1, c + 1).setValue(updatedCellVal);
+          newSheetValues[r][c] = updatedCellVal;
+          valuesModified = true;
         }
 
         var match = updatedCellVal.match(/\{\{([A-Z]+)_(\d+)\}\}/);
@@ -264,7 +270,9 @@ function generateMonthlySheet(year, month, options) {
             }
             
             var originalCellVal = String(updatedCellVal).trim();
-            newSheet.getRange(r + 1, c + 1).setValue(updatedCellVal.replace("{{" + placeholderKey + "}}", dateStr));
+            updatedCellVal = updatedCellVal.replace("{{" + placeholderKey + "}}", dateStr);
+            newSheetValues[r][c] = updatedCellVal;
+            valuesModified = true;
             
             if (!placeholderLocations[placeholderKey]) placeholderLocations[placeholderKey] = [];
             placeholderLocations[placeholderKey].push({ 
@@ -274,11 +282,17 @@ function generateMonthlySheet(year, month, options) {
             });
             
           } else {
-            newSheet.getRange(r + 1, c + 1).setValue(updatedCellVal.replace("{{" + placeholderKey + "}}", ""));
+            updatedCellVal = updatedCellVal.replace("{{" + placeholderKey + "}}", "");
+            newSheetValues[r][c] = updatedCellVal;
+            valuesModified = true;
           }
         }
       }
     }
+  }
+
+  if (valuesModified) {
+    newSheetRange.setValues(newSheetValues);
   }
 
   // Read manual overrides from MonthlyOverridesLog if preserving overrides
@@ -794,29 +808,33 @@ function generateMonthlySheet(year, month, options) {
   // =======================================================================
   // 10. LOCK THE SHEET TO PREVENT MANUAL OVERRIDES
   // =======================================================================
-  var existingProtections = newSheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
-  var protection = (existingProtections && existingProtections.length > 0) ? existingProtections[0] : newSheet.protect().setDescription('Locked: Generated from Q Sheets');
-  
-  var currentEditors = protection.getEditors();
-  protection.removeEditors(currentEditors);
-  
-  if (protection.canDomainEdit()) {
-    protection.setDomainEdit(false);
-  }
-  
-  var editors = [];
-  if (typeof getChurchConfig === 'function') {
-    var churchConfig = getChurchConfig(false);
-    var authString = churchConfig.profile.authorized_editors || '';
-    if (authString) {
-      editors = authString.split(',').map(function(e) { return e.trim(); }).filter(function(e) { return e; });
+  try {
+    var existingProtections = newSheet.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    var protection = (existingProtections && existingProtections.length > 0) ? existingProtections[0] : newSheet.protect().setDescription('Locked: Generated from Q Sheets');
+    
+    var currentEditors = protection.getEditors();
+    protection.removeEditors(currentEditors);
+    
+    if (protection.canDomainEdit()) {
+      protection.setDomainEdit(false);
     }
-  }
-  if (editors.length === 0 && typeof AUTHORIZED_EDITORS !== 'undefined' && AUTHORIZED_EDITORS.length > 0) {
-    editors = AUTHORIZED_EDITORS;
-  }
-  if (editors.length > 0) {
-    protection.addEditors(editors);
+    
+    var editors = [];
+    if (typeof getChurchConfig === 'function') {
+      var churchConfig = getChurchConfig(false);
+      var authString = churchConfig.profile.authorized_editors || '';
+      if (authString) {
+        editors = authString.split(',').map(function(e) { return e.trim(); }).filter(function(e) { return e; });
+      }
+    }
+    if (editors.length === 0 && typeof AUTHORIZED_EDITORS !== 'undefined' && AUTHORIZED_EDITORS.length > 0) {
+      editors = AUTHORIZED_EDITORS;
+    }
+    if (editors.length > 0) {
+      protection.addEditors(editors);
+    }
+  } catch (protectErr) {
+    console.warn("Could not set sheet protection on " + newSheet.getName() + ": " + protectErr.message);
   }
   
   ss.setActiveSheet(newSheet);

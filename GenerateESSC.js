@@ -674,6 +674,14 @@ function generateESSCForSeason(season, targetSs) {
         }
         var targetRange = targetSheet.getRange(minRow, minCol, maxRow - minRow + 1, maxCol - minCol + 1);
         var values = targetRange.getValues();
+        var formulas = targetRange.getFormulas();
+        for (var rIdx = 0; rIdx < values.length; rIdx++) {
+          for (var cIdx = 0; cIdx < values[rIdx].length; cIdx++) {
+            if (formulas[rIdx] && formulas[rIdx][cIdx] !== '') {
+              values[rIdx][cIdx] = formulas[rIdx][cIdx];
+            }
+          }
+        }
         for (var u = 0; u < parsedUpdates.length; u++) {
           values[parsedUpdates[u].r - minRow][parsedUpdates[u].c - minCol] = parsedUpdates[u].val;
         }
@@ -1024,8 +1032,7 @@ function syncLogoToPresentationSheet(sheet) {
       try {
         logoBlob = DriveApp.getFileById(logoFileId).getBlob().setName("tjcLogo.png");
       } catch (err) {
-        var response = UrlFetchApp.fetch("https://drive.google.com/uc?export=view&id=" + logoFileId);
-        logoBlob = response.getBlob().setName("tjcLogo.png");
+        console.warn("Could not load logo from DriveApp (" + logoFileId + "): " + err.message);
       }
     }
     if (logoBlob) {
@@ -1143,25 +1150,12 @@ function showSidebarESSC() {
 }
 
 /**
- * Simple trigger that fires whenever selection changes in the spreadsheet.
- * Immediately caches active cell coordinate to reduce RPC latency.
+ * @deprecated Legacy standalone trigger. Apps Script only executes global onSelectionChange(e)
+ * in Admin_Tools.js, which already handles ESSC sheets and routes active cell coordinates to pollContext.
  */
 function onSelectionChangeESSC(e) {
-  try {
-    if (!e || !e.range) return;
-    var sheet = e.range.getSheet();
-    var sName = sheet.getName();
-    if (sName !== ESSC_CONFIG.SPRING_GRID && sName !== ESSC_CONFIG.FALL_GRID) return;
-    
-    var cache = CacheService.getUserCache();
-    cache.put('ESSC_ACTIVE_CELL', JSON.stringify({
-      sheet: sName,
-      row: e.range.getRow(),
-      col: e.range.getColumn(),
-      a1: e.range.getA1Notation()
-    }), 15);
-  } catch(err) {
-    console.error('Error in onSelectionChange:', err);
+  if (typeof onSelectionChange === 'function') {
+    onSelectionChange(e);
   }
 }
 
@@ -1473,7 +1467,7 @@ function assignESSCWorker(sheetName, row, col, workerName) {
       return { success: false, error: 'Could not obtain lock. Another user may be updating the sheet.' };
     }
     try {
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var ss = typeof getTargetESSCSpreadsheet === 'function' ? getTargetESSCSpreadsheet() : SpreadsheetApp.getActiveSpreadsheet();
       var sheet = ss.getSheetByName(sheetName);
       if (!sheet) return { success: false, error: 'Sheet not found' };
       sheet.getRange(r, c).setValue(cleanWorker);

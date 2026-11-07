@@ -106,14 +106,8 @@ function getLogoBlob() {
   try {
     return DriveApp.getFileById(fileId).getBlob().setName("tjcLogo.png");
   } catch (e) {
-    Logger.log("DriveApp logo fetch failed, trying UrlFetchApp fallback: " + e.toString());
-    try {
-      var response = UrlFetchApp.fetch("https://drive.google.com/uc?export=view&id=" + fileId);
-      return response.getBlob().setName("tjcLogo.png");
-    } catch (err) {
-      Logger.log("Failed to fetch logo: " + err.toString());
-      return null;
-    }
+    Logger.log("DriveApp logo fetch failed for " + fileId + ": " + e.toString());
+    return null;
   }
 }
 
@@ -156,6 +150,11 @@ var COL = {
   CLN_FRI_MAIN2: 30,  // Col AE
   CLN_FRI_SIDE:  31,  // Col AF
   FRI_CLN_CHAPEL: [29, 30, 31],
+  
+  // Cleaning (Saturday Windows) - Cols AG, AH (0-indexed 32, 33)
+  CLN_SAT_WIN1:  32,  // Col AG (Window Cleaning 1)
+  CLN_SAT_WIN2:  33,  // Col AH (Window Cleaning 2)
+  SAT_CLN_WINDOWS: [32, 33],
   
   // Cleaning (Saturday) - Aligned with Q4 and MappingConfig
   CLN_SAT_MAIN1: 34,  // Col AI (Chapel 1)
@@ -201,6 +200,7 @@ function loadColMappingsFromConfig() {
     if (!configSheet) return;
 
     var data = configSheet.getDataRange().getValues();
+    var satWindows = [];
     var satChapel = [];
     var satTrash = [];
     var satBrosDown = [];
@@ -221,7 +221,9 @@ function loadColMappingsFromConfig() {
 
       // Saturday Cleaning
       if (dayType === "SAT" && section === "CLEANING") {
-        if (roleName.indexOf("CHAPEL") !== -1) {
+        if (roleName.indexOf("WINDOW") !== -1) {
+          if (satWindows.indexOf(colIdx) === -1) satWindows.push(colIdx);
+        } else if (roleName.indexOf("CHAPEL") !== -1) {
           if (satChapel.indexOf(colIdx) === -1) satChapel.push(colIdx);
         } else if (roleName.indexOf("TRASH") !== -1) {
           if (satTrash.indexOf(colIdx) === -1) satTrash.push(colIdx);
@@ -268,6 +270,11 @@ function loadColMappingsFromConfig() {
       }
     }
 
+    if (satWindows.length > 0) {
+      COL.SAT_CLN_WINDOWS = satWindows;
+      COL.CLN_SAT_WIN1 = satWindows[0];
+      COL.CLN_SAT_WIN2 = satWindows.length > 1 ? satWindows[1] : null;
+    }
     if (satChapel.length > 0) {
       COL.CLN_SAT_MAIN1 = satChapel[0];
       COL.CLN_SAT_MAIN2 = satChapel.length > 1 ? satChapel[1] : null;
@@ -310,10 +317,12 @@ function loadColMappingsFromConfig() {
 // =============================================================================
 
 function sendAssignmentReminders(isManualForce) {
-  SHEET_URL = getActiveSheetUrl();
-  SERMON_TOPICS_SHEET_URL = getSermonTopicsSheetUrl();
-  loadColMappingsFromConfig();
-  emailLog("INFO", "sendAssignmentReminders() started", "");
+  return executeWithLockAndRetry_('sendAssignmentReminders', function() {
+    try {
+      SHEET_URL = getActiveSheetUrl();
+      SERMON_TOPICS_SHEET_URL = getSermonTopicsSheetUrl();
+      loadColMappingsFromConfig();
+      emailLog("INFO", "sendAssignmentReminders() started", "");
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = ss.getSpreadsheetTimeZone();
@@ -419,8 +428,11 @@ function sendAssignmentReminders(isManualForce) {
     });
   }
 
-  emailLog("INFO", "sendAssignmentReminders() completed", "");
-  flushEmailLogs();
+      emailLog("INFO", "sendAssignmentReminders() completed", "");
+    } finally {
+      flushEmailLogs();
+    }
+  }, { timeoutMs: 30000 });
 }
 
 
@@ -558,7 +570,7 @@ function getWorkerEmails(matchingRows) {
       throw new Error("getWorkerSchema not defined. Please include Admin_Tools.js.");
     }
 
-    var startDataRow = 2; // Data begins at row 3 (0-indexed 2)
+    var startDataRow = (schema && schema.dataStartIdx !== undefined) ? schema.dataStartIdx : 2;
     for (var j = startDataRow; j < allData.length; j++) {
       var rowVals = allData[j];
       var email = String(rowVals[schema.emailCol] || "").trim();
@@ -941,6 +953,7 @@ function buildEmailContent(dayOfWeek, formattedDate, matchingRows) {
       }
 
       body += buildCleaningTable([
+        { icon: "🪟", area: "Windows", workers: getCln(COL.SAT_CLN_WINDOWS || [COL.CLN_SAT_WIN1, COL.CLN_SAT_WIN2]) },
         { icon: "🏛", area: "Chapel + MPR", workers: getCln(COL.SAT_CLN_CHAPEL || [COL.CLN_SAT_MAIN1, COL.CLN_SAT_MAIN2, COL.CLN_SAT_MAIN3]) },
         { icon: "🗑", area: "Trash (Dining Hall)", workers: getCln(COL.SAT_CLN_TRASH || COL.CLN_TRASH) },
         { icon: "🚹", area: "Brothers Restroom (Downstairs)", workers: getCln(COL.SAT_CLN_BROS_DOWN || [COL.CLN_BRO_DOWN1, COL.CLN_BRO_DOWN2]) },
@@ -1293,56 +1306,71 @@ function buildMonthlyUnavailabilityEmailBody(targetYear, unavailUrl) {
  * Main Entry Point: Sends out the monthly unavailability reminder email on the 1st of each month.
  */
 function sendMonthlyUnavailabilityReminder(isManualForce) {
-  try {
-    SHEET_URL = getActiveSheetUrl();
-    loadColMappingsFromConfig();
-
-    var targetYear = getScheduleTargetYear();
-    var today = new Date();
-    // Start 1 month prior to target schedule year (e.g. December 1, 2026 for 2027 schedule)
-    var startDate = new Date(targetYear - 1, 11, 1, 0, 0, 0);
-
-    if (!isManualForce && today < startDate) {
-      var startStr = Utilities.formatDate(startDate, Session.getScriptTimeZone() || "GMT", "yyyy-MM-dd");
-      emailLog("SKIP", "Automated unavailability reminder suspended until " + startStr, "Target Schedule Year: " + targetYear);
-      return;
-    }
-
-    var recipients = getUnavailabilityReminderRecipients();
-
-    emailLog("INFO", "sendMonthlyUnavailabilityReminder() started", "Target Year: " + targetYear + ", Recipients found: " + recipients.length);
-
-    if (recipients.length === 0) {
-      emailLog("WARN", "No qualified recipients found for monthly unavailability reminder", "Check Workers sheet columns F, J, M, N");
-      return;
-    }
-
-    var unavailUrl = getUnavailabilitySheetUrl(targetYear);
-    var subject = "Monthly Reminder: Please Update Your Unavailability";
-    var htmlBody = buildMonthlyUnavailabilityEmailBody(targetYear, unavailUrl);
-
+  return executeWithLockAndRetry_('sendMonthlyUnavailabilityReminder', function() {
     try {
-      var mailOptions = {
-        to: CC_RECIPIENT,
-        bcc: recipients.join(","),
-        subject: subject,
-        htmlBody: htmlBody
-      };
+      SHEET_URL = getActiveSheetUrl();
+      loadColMappingsFromConfig();
 
-      var logoBlob = getLogoBlob();
-      if (logoBlob) {
-        mailOptions.inlineImages = { tjcLogo: logoBlob };
+      var targetYear = getScheduleTargetYear();
+      var today = new Date();
+      // Start 1 month prior to target schedule year (e.g. December 1, 2026 for 2027 schedule)
+      var startDate = new Date(targetYear - 1, 11, 1, 0, 0, 0);
+
+      if (!isManualForce && today < startDate) {
+        var startStr = Utilities.formatDate(startDate, Session.getScriptTimeZone() || "GMT", "yyyy-MM-dd");
+        emailLog("SKIP", "Automated unavailability reminder suspended until " + startStr, "Target Schedule Year: " + targetYear);
+        return;
       }
 
-      MailApp.sendEmail(mailOptions);
+      var recipients = getUnavailabilityReminderRecipients();
 
-      emailLog("SENT", "Monthly Unavailability Reminder sent", "Recipients: " + recipients.length + " workers, Year: " + targetYear);
-    } catch (e) {
-      emailLog("ERROR", "Failed to send Monthly Unavailability Reminder: " + e.message, "Target Year: " + targetYear);
+      emailLog("INFO", "sendMonthlyUnavailabilityReminder() started", "Target Year: " + targetYear + ", Recipients found: " + recipients.length);
+
+      if (recipients.length === 0) {
+        emailLog("WARN", "No qualified recipients found for monthly unavailability reminder", "Check Workers sheet columns F, J, M, N");
+        return;
+      }
+
+      var unavailUrl = getUnavailabilitySheetUrl(targetYear);
+      var subject = "Monthly Reminder: Please Update Your Unavailability";
+      var htmlBody = buildMonthlyUnavailabilityEmailBody(targetYear, unavailUrl);
+
+      try {
+        var CHUNK_SIZE = 50;
+        var totalSent = 0;
+        var logoBlob = getLogoBlob();
+
+        for (var b = 0; b < recipients.length; b += CHUNK_SIZE) {
+          var chunk = recipients.slice(b, b + CHUNK_SIZE);
+          var remainingQuota = MailApp.getRemainingDailyQuota();
+          if (remainingQuota <= 0) {
+            emailLog("ERROR", "MailApp daily quota exhausted", "Remaining quota: " + remainingQuota);
+            break;
+          }
+
+          var mailOptions = {
+            to: CC_RECIPIENT,
+            bcc: chunk.join(","),
+            subject: subject,
+            htmlBody: htmlBody
+          };
+
+          if (logoBlob) {
+            mailOptions.inlineImages = { tjcLogo: logoBlob };
+          }
+
+          MailApp.sendEmail(mailOptions);
+          totalSent += chunk.length;
+        }
+
+        emailLog("SENT", "Monthly Unavailability Reminder sent", "Recipients: " + totalSent + " of " + recipients.length + " workers, Year: " + targetYear);
+      } catch (e) {
+        emailLog("ERROR", "Failed to send Monthly Unavailability Reminder: " + e.message, "Target Year: " + targetYear);
+      }
+    } finally {
+      flushEmailLogs();
     }
-  } finally {
-    flushEmailLogs();
-  }
+  }, { timeoutMs: 30000 });
 }
 
 /**

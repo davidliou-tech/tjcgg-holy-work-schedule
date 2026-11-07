@@ -560,14 +560,13 @@ function onEdit(e) {
       logSheet.hideSheet();
     }
     
-    logSheet.insertRowAfter(1);
-    logSheet.getRange(2, 1, 1, 6).setValues([[time, userEmail, s, cellRef, oldValue, newValue]]);
+    logSheet.appendRow([time, userEmail, s, cellRef, oldValue, newValue]);
     
-    // Keep the log bounded (newest rows are at the top): trim oldest rows in batches
+    // Keep the log bounded: trim oldest rows from top in batches
     var LOG_MAX_ROWS = 5000, LOG_TRIM_SLACK = 500;
     var lastLogRow = logSheet.getLastRow();
     if (lastLogRow > LOG_MAX_ROWS + 1 + LOG_TRIM_SLACK) {
-      logSheet.deleteRows(LOG_MAX_ROWS + 2, lastLogRow - (LOG_MAX_ROWS + 1));
+      logSheet.deleteRows(2, lastLogRow - (LOG_MAX_ROWS + 1));
     }
   } catch (logErr) {
     console.warn("Could not write to MonthlyOverridesLog: " + logErr.message);
@@ -887,18 +886,22 @@ function getUnavailabilityData(forceRefresh) {
   }
   var map = {};
   if (uvSheet) {
-    var rows = uvSheet.getRange(1, 1, CONFIG.MAX_UNAVAIL_ROWS, 3).getValues();
-    for (var r = 1; r < CONFIG.MAX_UNAVAIL_ROWS; r++) {
-      if (!rows[r]) continue;
-      var dv = rows[r][0], nm = String(rows[r][1]).trim();
-      if (!dv && !nm) continue;
-      var rs = rows[r][2] ? String(rows[r][2]).trim() : 'Marked Unavailable';
-      if (dv && nm) {
-        var dateObj = dv instanceof Date ? dv : new Date(dv);
-        if (!isNaN(dateObj.getTime())) {
-          var ds = Utilities.formatDate(dateObj, tz, 'yyyy-MM-dd');
-          if (!map[ds]) map[ds] = [];
-          map[ds].push({ name: nm, reason: rs });
+    var maxUvR = Math.min(uvSheet.getMaxRows(), CONFIG.MAX_UNAVAIL_ROWS);
+    var maxUvC = Math.min(uvSheet.getMaxColumns(), 3);
+    if (maxUvR > 0 && maxUvC > 0) {
+      var rows = uvSheet.getRange(1, 1, maxUvR, maxUvC).getValues();
+      for (var r = 1; r < maxUvR; r++) {
+        if (!rows[r]) continue;
+        var dv = rows[r][0], nm = String(rows[r][1] || '').trim();
+        if (!dv && !nm) continue;
+        var rs = rows[r][2] ? String(rows[r][2]).trim() : 'Marked Unavailable';
+        if (dv && nm) {
+          var dateObj = dv instanceof Date ? dv : new Date(dv);
+          if (!isNaN(dateObj.getTime())) {
+            var ds = Utilities.formatDate(dateObj, tz, 'yyyy-MM-dd');
+            if (!map[ds]) map[ds] = [];
+            map[ds].push({ name: nm, reason: rs });
+          }
         }
       }
     }
@@ -958,7 +961,9 @@ function getWorkersAvailability(forceRefresh) {
   var workerSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.WORKERS_SHEET);
   var result = {};
   if (workerSheet) {
-    var data = workerSheet.getRange(1, 1, CONFIG.MAX_WORKER_ROWS, CONFIG.MAX_WORKER_COLS).getValues();
+    var maxWR = Math.min(workerSheet.getMaxRows(), CONFIG.MAX_WORKER_ROWS);
+    var maxWC = Math.min(workerSheet.getMaxColumns(), CONFIG.MAX_WORKER_COLS);
+    var data = (maxWR > 0 && maxWC > 0) ? workerSheet.getRange(1, 1, maxWR, maxWC).getValues() : [];
     if (data && data.length > 0) {
       var detected = detectWorkersHeaderRow_(data);
       var headers = detected.headers.map(function(h) { return String(h).trim().toLowerCase(); });
@@ -1295,19 +1300,28 @@ function getSheetChunkData(sheet, sName, forceRefresh) {
       };
     }
     
-    var allData = sheet.getRange(1, 1, CONFIG.MAX_SCHEDULE_ROWS, CONFIG.MAX_COLUMNS).getValues();
+    var maxR = Math.min(sheet.getMaxRows(), CONFIG.MAX_SCHEDULE_ROWS);
+    var maxC = Math.min(sheet.getMaxColumns(), CONFIG.MAX_COLUMNS);
+    var allData = sheet.getRange(1, 1, maxR, maxC).getValues();
     
     var teamMap = {}, teamRawMap = {}, roleMap = {};
-    var row2 = allData[1], row4 = allData[3], row5 = allData[4], row6 = allData[5];
+    var row2 = allData.length > 1 ? allData[1] : null;
+    var row4 = allData.length > 3 ? allData[3] : null;
+    var row5 = allData.length > 4 ? allData[4] : null;
+    var row6 = allData.length > 5 ? allData[5] : null;
     
-    for (var c = 2; c <= CONFIG.MAX_COLUMNS; c++) {
+    for (var c = 2; c <= maxC; c++) {
       var idx = c - 1;
-      var role = (row4 && String(row4[idx]).trim()) ? String(row4[idx]).trim() : String(row5[idx]).trim();
+      var role = (row4 && String(row4[idx] || '').trim()) ? String(row4[idx] || '').trim() : (row5 ? String(row5[idx] || '').trim() : '');
       if (role) roleMap[c] = role;
       
       var raw = '';
-      for (var sc = idx; sc >= 0; sc--) { var v = String(row2[sc]).trim(); if (v) { raw = v; break; } }
-      if (!raw) { for (var sc = idx; sc >= 0; sc--) { var v = String(row6[sc]).trim(); if (v) { raw = v; break; } } }
+      if (row2) {
+        for (var sc = idx; sc >= 0; sc--) { var v = String(row2[sc] || '').trim(); if (v) { raw = v; break; } }
+      }
+      if (!raw && row6) {
+        for (var sc = idx; sc >= 0; sc--) { var v = String(row6[sc] || '').trim(); if (v) { raw = v; break; } }
+      }
       
       var resolvedFromRole = resolveTeamMapping(role, teamNames);
       var resolvedFromRaw  = resolveTeamMapping(raw, teamNames);
@@ -1326,14 +1340,15 @@ function getSheetChunkData(sheet, sName, forceRefresh) {
     
     var rowDates = {}, rowAssignments = {};
     
-    for (var r = 5; r < CONFIG.MAX_SCHEDULE_ROWS; r++) { 
+    for (var r = 5; r < maxR; r++) { 
       var actualRow = r + 1;
       var rowArr = allData[r];
+      if (!rowArr) continue;
       var dv = rowArr[0];
       
       var isEmpty = true;
-      for (var i = 0; i < CONFIG.MAX_COLUMNS; i++) {
-         if (String(rowArr[i]).trim() !== '') { isEmpty = false; break; }
+      for (var i = 0; i < maxC; i++) {
+         if (String(rowArr[i] || '').trim() !== '') { isEmpty = false; break; }
       }
       if (isEmpty) continue; 
       
@@ -1350,8 +1365,8 @@ function getSheetChunkData(sheet, sName, forceRefresh) {
       
       var awm = {};
       
-      for (var c = 0; c < CONFIG.MAX_COLUMNS; c++) {
-        var val = String(rowArr[c]).trim();
+      for (var c = 0; c < maxC; c++) {
+        var val = String(rowArr[c] || '').trim();
         
         if (c >= 1 && val) {
           var roleName = roleMap[c + 1] || 'Column ' + colNumToLetter(c + 1);
@@ -1428,11 +1443,34 @@ function generateAnnualSummary() {
     }
   }
   
-  // 1. Build a strict case-insensitive whitelist from the Workers sheet
-  var rawWorkers = getWorkersAvailability(false);
+  // 1. Build a strict case-insensitive whitelist from the Workers sheet (Fix ID #24)
+  var workerSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
   var whitelist = {};
-  for (var w in rawWorkers) {
-     whitelist[w.toUpperCase()] = w; 
+  if (workerSheet) {
+    try {
+      var wSchema = getWorkerSchema(workerSheet);
+      var wMaxRows = Math.min(workerSheet.getMaxRows(), CONFIG.MAX_WORKER_ROWS);
+      var wMaxCols = Math.min(workerSheet.getMaxColumns(), CONFIG.MAX_WORKER_COLS);
+      var wData = (wMaxRows > 0 && wMaxCols > 0) ? workerSheet.getRange(1, 1, wMaxRows, wMaxCols).getValues() : [];
+      var nameCols = (wSchema && wSchema.nameCols && wSchema.nameCols.length > 0) ? wSchema.nameCols : [4];
+      var startIdx = (wSchema && wSchema.dataStartIdx !== undefined) ? wSchema.dataStartIdx : 2;
+      for (var r = startIdx; r < wData.length; r++) {
+        for (var nc = 0; nc < nameCols.length; nc++) {
+          var val = String(wData[r][nameCols[nc]] || '').trim();
+          if (val) {
+            whitelist[val.toUpperCase()] = val;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not build worker whitelist from schema: ' + e.message);
+    }
+  }
+  if (Object.keys(whitelist).length === 0) {
+    var rawWorkers = getWorkersAvailability(false);
+    for (var w in rawWorkers) {
+       whitelist[w.toUpperCase()] = w; 
+    }
   }
   
   CONFIG.QUARTERS.forEach(function(q) {
@@ -1637,22 +1675,19 @@ function resetForNewYear(year, targetSs) {
     var values = dataRange.getValues();
     var formulas = dataRange.getFormulas();
     
-    var rangesToClear = [];
-    
     for (var r = 0; r < values.length; r++) {
       for (var c = 0; c < values[r].length; c++) {
-        var cellValue = String(values[r][c]).trim().toUpperCase();
-        var cellFormula = String(formulas[r][c]).trim();
+        var cellFormula = String(formulas[r][c] || '').trim();
+        var cellValue = String(values[r][c] || '').trim().toUpperCase();
         
-        if (cellFormula === "" && cellValue !== "X" && cellValue !== "") {
-          rangesToClear.push(sheet.getRange(r + startRow + 1, c + 2).getA1Notation());
+        if (cellFormula !== '') {
+          values[r][c] = formulas[r][c]; // preserve exact formula
+        } else if (cellValue !== 'X' && cellValue !== '') {
+          values[r][c] = ''; // clear assigned name
         }
       }
     }
-    
-    if (rangesToClear.length > 0) {
-      sheet.getRangeList(rangesToClear).clearContent();
-    }
+    dataRange.setValues(values);
   }
   
   // 3. Clear the Email Log sheet if present
@@ -2294,9 +2329,16 @@ function restructureQuarterSheetsToUniversal14(targetSs) {
         for (var k = 0; k < numRows; k++) ayVals.push(['X']);
         ayRange.setValues(ayVals);
       } else {
+        var wSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
+        var wSchema = null;
+        try { if (wSheet) wSchema = getWorkerSchema(wSheet); } catch (e) {}
+        var nameColLet = (wSchema && wSchema.nameCols && wSchema.nameCols.length > 0) ? colIdxToLetter_(wSchema.nameCols[0] + 1) : 'E';
+        var chnColLet = (wSchema && wSchema.chineseNameCol !== -1) ? colIdxToLetter_(wSchema.chineseNameCol + 1) : 'H';
+        var wStartRow = (wSchema && wSchema.dataStartIdx !== undefined) ? (wSchema.dataStartIdx + 1) : 3;
+
         var ayFormulas = [];
         for (var r = sec.startRow; r <= sec.endRow; r++) {
-          ayFormulas.push(['=IF(ISBLANK(B' + r + '), "", IFERROR(XLOOKUP(B' + r + ', Workers!$E$3:$E, Workers!$H$3:$H, B' + r + '), B' + r + '))']);
+          ayFormulas.push(['=IF(ISBLANK(B' + r + '), "", IFERROR(XLOOKUP(B' + r + ', Workers!$' + nameColLet + '$' + wStartRow + ':$' + nameColLet + ', Workers!$' + chnColLet + '$' + wStartRow + ':$' + chnColLet + ', B' + r + '), B' + r + '))']);
         }
         ayRange.setFormulas(ayFormulas);
       }
@@ -3167,6 +3209,11 @@ function syncUnavailabilityFromMatrix() {
   internalSheet.setFrozenRows(1);
   
   if (unavailableEntries.length > 0) {
+    var neededRows = unavailableEntries.length + 1; // 1 header row + data rows
+    var currentRows = internalSheet.getMaxRows();
+    if (neededRows > currentRows) {
+      internalSheet.insertRowsAfter(currentRows, neededRows - currentRows);
+    }
     var writeRange = internalSheet.getRange(2, 1, unavailableEntries.length, 3);
     writeRange.setValues(unavailableEntries);
     internalSheet.getRange(2, 1, unavailableEntries.length, 1).setNumberFormat("yyyy-MM-dd");
@@ -3501,11 +3548,11 @@ function activateAllTriggers() {
     .atHour(5)
     .create();
 
-  // 7. Monthly Unavailability Email Reminder: 1st of every month at 8:00 AM - 9:00 AM
+  // 7. Monthly Unavailability Email Reminder: 1st of every month at 10:00 AM - 11:00 AM (avoids collision with 8:00 AM assignment reminders)
   ScriptApp.newTrigger('sendMonthlyUnavailabilityReminder')
     .timeBased()
     .onMonthDay(1)
-    .atHour(8)
+    .atHour(10)
     .create();
 
   // 8. Sync Coordinator Names from Coordinators config tab to Row 3 of Q1-Q4
@@ -3669,7 +3716,8 @@ function promptProvisionNewYear() {
  * resets dates, clears past data, updates IMPORTRANGE formulas, and sets public edit sharing.
  */
 function provisionNewYear(year, sourceUnavailId, sourceSermonTopicsId) {
-  var localSs = SpreadsheetApp.getActiveSpreadsheet();
+  return executeWithLockAndRetry_('provisionNewYear', function() {
+    var localSs = SpreadsheetApp.getActiveSpreadsheet();
   
   if (!sourceSermonTopicsId) {
     sourceSermonTopicsId = getLinkedSermonTopicsId();
@@ -3792,6 +3840,7 @@ function provisionNewYear(year, sourceUnavailId, sourceSermonTopicsId) {
     sermonTopicsId: newSermonFile ? newSermonFile.getId() : "",
     sermonTopicsError: sermonProvisionError
   };
+  }, { timeoutMs: 60000 });
 }
 
 /**
@@ -4848,7 +4897,7 @@ function syncRosters() {
       });
       longFormat.unshift(headersRow);
       
-      teamsSheet.clearContents();
+      teamsSheet.clearContent();
       if (longFormat.length > 0) {
          teamsSheet.getRange(1, 1, longFormat.length, 2).setValues(longFormat);
       }
@@ -5235,35 +5284,52 @@ function commitWorkerImport(stagingId, options) {
          }
       }
       
-      // Process updates (batched per row to prevent quota/rate limits)
-      var maxCols = sheet.getMaxColumns();
-      for (var i = 0; i < updates.length; i++) {
-         var u = updates[i];
-         var rowRange = sheet.getRange(u.row, 1, 1, maxCols);
-         var rowVals = rowRange.getValues()[0];
-         if (schema.emailCol !== -1 && u.rec.Email) rowVals[schema.emailCol] = u.rec.Email;
-         if (schema.chineseNameCol !== -1 && u.rec.ChineseName) rowVals[schema.chineseNameCol] = u.rec.ChineseName;
-         if (schema.phoneCol !== -1 && u.rec.Phone) rowVals[schema.phoneCol] = u.rec.Phone;
-         if (schema.teamsCol !== -1 && u.rec.Teams) rowVals[schema.teamsCol] = u.rec.Teams;
-         if (schema.qualCol !== -1 && u.rec.Qualifications) rowVals[schema.qualCol] = u.rec.Qualifications;
-         if (schema.statusCol !== -1 && u.rec.Status) rowVals[schema.statusCol] = u.rec.Status;
-         
-         if (u.rec.Teams) {
-           var teamsArr = u.rec.Teams.split(',').map(function(t){ return t.trim().toLowerCase(); });
-           for (var t = 0; t < teamsArr.length; t++) {
-             if (teamColMap[teamsArr[t]] !== undefined) {
-               rowVals[teamColMap[teamsArr[t]] - 1] = true;
-             }
-           }
-         }
-         rowRange.setValues([rowVals]);
+      // Process updates (batched in-memory to prevent quota/rate limits - Fix ID #14)
+      if (updates.length > 0) {
+        var maxCols = sheet.getMaxColumns();
+        var minUpdateRow = updates[0].row;
+        var maxUpdateRow = updates[0].row;
+        for (var i = 1; i < updates.length; i++) {
+          if (updates[i].row < minUpdateRow) minUpdateRow = updates[i].row;
+          if (updates[i].row > maxUpdateRow) maxUpdateRow = updates[i].row;
+        }
+        var updateNumRows = maxUpdateRow - minUpdateRow + 1;
+        var updateRange = sheet.getRange(minUpdateRow, 1, updateNumRows, maxCols);
+        var updateValues = updateRange.getValues();
+
+        for (var i = 0; i < updates.length; i++) {
+          var u = updates[i];
+          var rowOffset = u.row - minUpdateRow;
+          var rowVals = updateValues[rowOffset];
+          if (schema.emailCol !== -1 && u.rec.Email) rowVals[schema.emailCol] = u.rec.Email;
+          if (schema.chineseNameCol !== -1 && u.rec.ChineseName) rowVals[schema.chineseNameCol] = u.rec.ChineseName;
+          if (schema.phoneCol !== -1 && u.rec.Phone) rowVals[schema.phoneCol] = u.rec.Phone;
+          if (schema.teamsCol !== -1 && u.rec.Teams) rowVals[schema.teamsCol] = u.rec.Teams;
+          if (schema.qualCol !== -1 && u.rec.Qualifications) rowVals[schema.qualCol] = u.rec.Qualifications;
+          if (schema.statusCol !== -1 && u.rec.Status) rowVals[schema.statusCol] = u.rec.Status;
+          
+          if (u.rec.Teams) {
+            var teamsArr = u.rec.Teams.split(',').map(function(t){ return t.trim().toLowerCase(); });
+            for (var t = 0; t < teamsArr.length; t++) {
+              if (teamColMap[teamsArr[t]] !== undefined) {
+                rowVals[teamColMap[teamsArr[t]] - 1] = true;
+              }
+            }
+          }
+        }
+        updateRange.setValues(updateValues);
       }
       
-      // Process new rows
+      // Process new rows (guarded with row expansion - Fix ID #7)
       if (newRows.length > 0) {
          var lastRow = sheet.getLastRow();
          var startNewRow = lastRow + 1;
          var totalCols = sheet.getMaxColumns();
+         var neededRows = startNewRow + newRows.length - 1;
+         var currentMaxRows = sheet.getMaxRows();
+         if (neededRows > currentMaxRows) {
+           sheet.insertRowsAfter(currentMaxRows, neededRows - currentMaxRows);
+         }
          var lastRowFormulas = lastRow >= 2 ? sheet.getRange(lastRow, 1, 1, totalCols).getFormulas()[0] : [];
          
          sheet.getRange(startNewRow, 1, newRows.length, totalCols).setValues(newRows);
@@ -5357,23 +5423,38 @@ function renameWorker(oldName, newName, options) {
       
       // 1. Rename in Workers tab
       var wSheet = ss.getSheetByName(CONFIG.WORKERS_SHEET);
-      var wSchema = getWorkerSchema(wSheet);
-      if (wSchema && wSchema.nameCols.length > 0) {
-         var wData = wSheet.getDataRange().getValues();
-         var wCol = wSchema.nameCols[0];
-         var wModified = false;
-         for (var r = 2; r < wData.length; r++) {
-            var n = String(wData[r][wCol]).trim().toLowerCase();
-            if (n === oldLower) {
-               stats.workersSheet++;
-               if (!isDryRun) {
-                  wData[r][wCol] = newTrim;
-                  wModified = true;
+      if (wSheet) {
+         var wSchema = null;
+         try { wSchema = getWorkerSchema(wSheet); } catch (e) {}
+         if (wSchema && wSchema.nameCols.length > 0) {
+            var wData = wSheet.getDataRange().getValues();
+            var wFormulas = wSheet.getDataRange().getFormulas();
+            var wModified = false;
+            var startIdx = (wSchema.dataStartIdx !== undefined) ? wSchema.dataStartIdx : 2;
+            for (var r = startIdx; r < wData.length; r++) {
+               for (var i = 0; i < wSchema.nameCols.length; i++) {
+                  var col = wSchema.nameCols[i];
+                  if (wFormulas[r] && wFormulas[r][col] !== '') continue;
+                  var n = String(wData[r][col] || '').trim().toLowerCase();
+                  if (n === oldLower) {
+                     stats.workersSheet++;
+                     if (!isDryRun) {
+                        wData[r][col] = newTrim;
+                        wModified = true;
+                     }
+                  }
                }
             }
-         }
-         if (wModified) {
-            wSheet.getRange(1, 1, wData.length, wData[0].length).setValues(wData);
+            if (wModified) {
+               for (var r = 0; r < wData.length; r++) {
+                  for (var c = 0; c < wData[r].length; c++) {
+                     if (wFormulas[r] && wFormulas[r][c] !== '') {
+                        wData[r][c] = wFormulas[r][c];
+                     }
+                  }
+               }
+               wSheet.getRange(1, 1, wData.length, wData[0].length).setValues(wData);
+            }
          }
       }
       
@@ -5383,10 +5464,12 @@ function renameWorker(oldName, newName, options) {
          var sheet = ss.getSheetByName(qSheets[s]);
          if (!sheet) continue;
          var data = sheet.getDataRange().getValues();
+         var formulas = sheet.getDataRange().getFormulas();
          var qModified = false;
          for (var r = 0; r < data.length; r++) {
             for (var c = 0; c < data[r].length; c++) {
-               if (String(data[r][c]).trim().toLowerCase() === oldLower) {
+               if (formulas[r] && formulas[r][c] !== '') continue;
+               if (String(data[r][c] || '').trim().toLowerCase() === oldLower) {
                   stats.qSheets++;
                   if (!isDryRun) {
                      data[r][c] = newTrim;
@@ -5396,6 +5479,13 @@ function renameWorker(oldName, newName, options) {
             }
          }
          if (qModified) {
+            for (var r = 0; r < data.length; r++) {
+               for (var c = 0; c < data[r].length; c++) {
+                  if (formulas[r] && formulas[r][c] !== '') {
+                     data[r][c] = formulas[r][c];
+                  }
+               }
+            }
             sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
          }
       }
