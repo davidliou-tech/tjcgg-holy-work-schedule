@@ -1,0 +1,7 @@
+# Ignore everything by default
+**/**
+
+# Allow only Apps Script runtime files
+!*.js
+!*.html
+!appsscript.json
