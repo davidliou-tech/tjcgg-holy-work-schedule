@@ -1,7 +1,7 @@
 # Holy Work Schedule (HWS) System
 
 > **Architecture:** Google Apps Script (V8 Runtime) + Multi-Church Cloud Engine  
-> **Target Release:** `v2027.10.0` (Production Hardened & Audited)  
+> **Target Release:** `v2027.11.0` (Production Hardened & Audited)  
 > **Deployment Tooling:** Google Clasp (`.clasp.json`) + Git / GitHub  
 > **Master Calendar Standard:** Universal 14-Row Architecture (Rows 1–94, Columns A–AY)
 

@@ -1,5 +1,46 @@
 # Release Notes — Holy Work Schedule System
 
+## [v2027.11.0] — 2026-11-07
+
+### 🚀 Overview
+Release `v2027.11.0` delivers the complete remediation and QA verification of all 32 defects cataloged in the Pass 1 Master Defect Inventory across 7 core JavaScript modules. This release hardens formula preservation against overwrite corruption, bounds dynamic range queries against sheet boundaries, prevents Apps Script execution timeouts and quota exhaustion, enforces concurrency locking (`LockService`), eliminates data leakage in email distributions, and harmonizes schema across the entire 2027 multi-workbook ecosystem.
+
+### 🔴 Critical Runtime, Formula Preservation & Range Bounds (Defects #1–#13)
+1. **Typo Fix in Roster Reset (#1)**: Fixed `teamsSheet.clearContents()` typo to `clearContent()` in [`Admin_Tools.js`](Admin_Tools.js).
+2. **Formula Preservation in Worker Rename (#2)**: Preserved date formulas, dynamic `XLOOKUP`, and `IMPORTRANGE` formulas during worker renaming across all sheets in [`Admin_Tools.js`](Admin_Tools.js) by reading `getFormulas()` in parallel with `getValues()`.
+3. **Bounded Sheet Chunk Queries (#3, #4, #5)**: Clamped unbounded row/column dimension queries in `getSheetChunkData()`, `getWorkerUnavailabilityFromSheet()`, and `getWorkersAvailability()` in [`Admin_Tools.js`](Admin_Tools.js) against `sheet.getMaxRows()` and `sheet.getMaxColumns()`.
+4. **Sheet Row Capacity Guards (#6, #7)**: Added automated capacity checks and `insertRowsAfter()` calls before batch-writing unavailability records in `syncUnavailabilityMatrix()` and new worker profiles in `commitWorkerImport()` in [`Admin_Tools.js`](Admin_Tools.js).
+5. **ESSC Presentation Formula Preservation (#8)**: Preserved all header dates, theme lookups, and presentation formulas during `targetRange.setValues()` in `generateESSCForSeason()` in [`GenerateESSC.js`](GenerateESSC.js).
+6. **Decoupled ESSC Spreadsheet Routing (#9)**: Switched `assignESSCWorker()` in [`GenerateESSC.js`](GenerateESSC.js) from `SpreadsheetApp.getActiveSpreadsheet()` to `getTargetESSCSpreadsheet()` to properly target external convocation workbooks.
+7. **Dynamic Worker Email Row Offset (#10)**: Bound `startDataRow` dynamically to `schema.dataStartIdx` in `getWorkerEmails()` in [`Service_Reminders.js`](Service_Reminders.js), preventing header corruption when metadata rows shift.
+8. **Headless Execution Guard in Validation Alerts (#11)**: Implemented `safeValidationAlert_()` in [`Validation.js`](Validation.js) to catch and log non-interactive trigger environments where `SpreadsheetApp.getUi()` is unavailable.
+9. **Automated Trigger Staggering (#12)**: Shifted `sendMonthlyUnavailabilityReminder` trigger from 8:00 AM to 10:00 AM in `activateAllTriggers()` ([`Admin_Tools.js`](Admin_Tools.js)), preventing quota collision with `sendAssignmentReminders`.
+10. **Email Concurrency Locking (#13, #27)**: Wrapped `sendAssignmentReminders` and `sendMonthlyUnavailabilityReminder` in `executeWithLockAndRetry_()` in [`Service_Reminders.js`](Service_Reminders.js) with `try ... finally { flushEmailLogs(); }` to prevent duplicate blasts and log loss.
+
+### ⚡ Performance, Quota Optimization & Concurrency (Defects #14–#19, #23)
+1. **Batch Worker Import Updates (#14)**: Consolidated row-by-row cell reads and writes in `commitWorkerImport()` into a single in-memory bounding box read and write pass in [`Admin_Tools.js`](Admin_Tools.js).
+2. **2D Batch Replacement in Monthly Generation (#15)**: Replaced per-cell `setValue()` loops in `generateMonthlySheet()` with in-memory 2D array token substitutions written via a single `setValues()` in [`GenerateMonthly.js`](GenerateMonthly.js).
+3. **Batch Reset for New Year (#16)**: Eliminated nested `sheet.getRange(...).getA1Notation()` loops over thousands of cells in `resetForNewYear()` in [`Admin_Tools.js`](Admin_Tools.js), batching updates via 2D array manipulation and `dataRange.setValues()`.
+4. **RE Schedule Tab Filtering (#17)**: Filtered out `'archive'`, `'template'`, and `'old'` sheets in `fetchREDataForDates()` in [`SyncRESchedules.js`](SyncRESchedules.js), avoiding redundant cross-workbook RPCs.
+5. **Year Provisioning Concurrency Lock (#18)**: Guarded `provisionNewYear()` in [`Admin_Tools.js`](Admin_Tools.js) with `executeWithLockAndRetry_('provisionNewYear', ..., { timeoutMs: 60000 })`, preventing concurrent triggers or double-clicks from spawning duplicate Drive folders.
+6. **Recipient Quota Batching & Throttling (#19)**: Chunked recipients in `sendMonthlyUnavailabilityReminder()` into batches of 50 with `MailApp.getRemainingDailyQuota()` pre-checks in [`Service_Reminders.js`](Service_Reminders.js).
+7. **Log Appending Optimization (#23)**: Replaced expensive `logSheet.insertRowAfter(1)` in `onEdit()` ([`Admin_Tools.js`](Admin_Tools.js)) with `logSheet.appendRow()` and bounded top-trimming.
+
+### 📋 Schema Integrity, Privacy, Validation & Cleanups (Defects #20–#22, #24–#32)
+1. **Worker Email Privacy Protection (#20)**: Placed email distribution lists in `bcc` instead of public `to` in `sendScheduleEmail_()` in [`ExportSchedulePDF.js`](ExportSchedulePDF.js).
+2. **Deterministic Timezone Date Parsing (#21)**: Replaced native `Date.parse()` in [`SyncRESchedules.js`](SyncRESchedules.js) with explicit local noon `(y, m - 1, d, 12, 0, 0)` instantiation, eliminating UTC midnight backward-day shifts in `America/Los_Angeles`.
+3. **Dynamic Formula Generation for Column AY (#22)**: Resolved Name and Chinese name column coordinates dynamically via `getWorkerSchema()` and `colIdxToLetter_()` in [`Admin_Tools.js`](Admin_Tools.js).
+4. **Whitelist-Driven Annual Summary Workers (#24)**: Replaced index guessing with strict whitelist derived from `getWorkerSchema().nameCols` in `generateAnnualSummary()` ([`Admin_Tools.js`](Admin_Tools.js)).
+5. **Validation Mappings for Columns AS & AT–AX (#25)**: Added default dropdown configurations for Column `AS` (Joy Fellowship) and `AT`–`AX` (Wednesday Bible Study & Locations) in `ensureValidationConfigSheet()` ([`Validation.js`](Validation.js)).
+6. **Saturday Window Cleaning Integration (#26)**: Added Saturday Window Cleaning (Columns `AG` and `AH`) to `COL`, `loadColMappingsFromConfig()`, and `buildCleaningTable()` in [`Service_Reminders.js`](Service_Reminders.js).
+7. **Quarter Sheet Cache Invalidation (#28)**: Added `bumpQuarterVersion(qName)` to `syncCoordinatorsToQuarterSheets()` in [`ExportSchedulePDF.js`](ExportSchedulePDF.js).
+8. **Editor Permission Safeguard in Monthly Protection (#29)**: Wrapped protection assignment in `protectGeneratedMonthlySheet_()` ([`GenerateMonthly.js`](GenerateMonthly.js)) in `try...catch` so non-owner editors can generate monthly sheets without crashing.
+9. **Default Published Link Sanitization (#30)**: Cleared legacy hardcoded October 2026 links in `EMAIL_TAB_PUBLISHED` default definition in [`ExportSchedulePDF.js`](ExportSchedulePDF.js).
+10. **Unauthenticated URL Fallback Removal (#31)**: Stripped unauthenticated `uc?export=view` Google Drive fallback in `syncLogoToPresentationSheet()` ([`GenerateESSC.js`](GenerateESSC.js)) and `getLogoBlob()` ([`Service_Reminders.js`](Service_Reminders.js)).
+11. **Orphaned Trigger Deprecation (#32)**: Deprecated unused `onSelectionChangeESSC()` trigger in [`GenerateESSC.js`](GenerateESSC.js) and routed event handling to `onSelectionChange(e)`.
+
+---
+
 ## [v2027.10.0] — 2026-11-06
 
 ### 🚀 Overview

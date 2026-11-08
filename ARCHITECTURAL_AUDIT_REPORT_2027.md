@@ -3,8 +3,8 @@
 > **Audit Date:** November 6, 2026  
 > **Project Folder:** `https://drive.google.com/drive/folders/1sH-ELkxwRLB78ts2rJeTpPmYtDY8KfzE` (Shared Drive: `0ABVpJUswSZTNUk9PVA`)  
 > **Apps Script Project ID:** `1fdNNZB8Uvm5yOFPasUzE6MgYZ4srSLYFbYIZElgjJXEp5wsfFhbz9lvC`  
-> **Target Release:** `v2027.10.0`  
-> **Audit Status:** All Identified Issues Remediated & Verified ✅
+> **Target Release:** `v2027.11.0` (Production Hardened & Audited)  
+> **Audit Status:** All Identified Issues Remediated & Verified ✅ (Defect IDs #1–#32 Resolved)
 
 ---
 
@@ -88,13 +88,28 @@ In [`AppConfig.js`](AppConfig.js), we implemented:
 ---
 
 ## Section 5: Summary of Files Updated
+ 
+ 1. [`AppConfig.js`](AppConfig.js) — Updated 2027 Drive/Spreadsheet IDs, added `ESSC_SCHEDULE_ID`, `AppLogger`, `parseA1Coords_()`, and enhanced `executeWithLockAndRetry_()` with exponential backoff + jitter and `SpreadsheetApp.flush()`.
+ 2. [`Admin_Tools.js`](Admin_Tools.js) — Updated 2027 fallback IDs, hardened `onEdit()`, `isAdminUser()`, `assignWorkerExact()`, `getTeamsAndWorkers()`, `ensureWorkersSchema()`, `syncRosters()`, `commitWorkerImport()`, `setWorkerStatus()`, `renameWorker()`, `seedRoleConfigSheet()`, `auditUpcomingMonthMissingSlots()`, and `repair2027LiveSpreadsheets()`. Applied Pass 1 defect resolutions (#1, #2, #3, #4, #5, #6, #7, #12, #14, #16, #18, #22, #23, #24).
+ 3. [`Validation.js`](Validation.js) — Fixed `J`/`K` defaults in `ensureValidationConfigSheet()`, added `VALIDATION_TEAM_ALIASES_`, `inferCleaningFallbackTeams_()`, and `expandTeamSearchKeys_()`, batched `applyValidationForESSC()`, and wrapped validation entry points in `executeWithLockAndRetry_()`. Applied Pass 1 defect resolutions (#11, #25).
+ 4. [`GenerateESSC.js`](GenerateESSC.js) — Added `batchUpdateOrAppendConfigRows_()`, replaced `getRange(a1).getRow()/getColumn()` with `parseA1Coords_()`, made `extractRostersFromMasterWorkers()` dynamically header-driven, and hardened `assignESSCWorker()` with `LockService`, `SpreadsheetApp.flush()`, and `bumpQuarterVersion()`. Applied Pass 1 defect resolutions (#8, #9, #31, #32).
+ 5. [`GenerateMonthly.js`](GenerateMonthly.js) — Referenced `APP_CONFIG.AUTHORIZED_EDITORS` and `APP_CONFIG.BIBLE_PLAN_URL`, fixed `J`/`K` mapping in `createDefaultConfigSheet()`, and batched weekly cleaning header/date writes. Applied Pass 1 defect resolutions (#15, #29).
+ 6. [`Service_Reminders.js`](Service_Reminders.js) — Added `APP_CONFIG.DEFAULT_SERMON_TOPICS_ID` fallback in `getSermonTopicsSheetUrl()`, renamed `letterToColumnIndex` to `letterToColIdx0_()` to eliminate global namespace collision, and batched `setBackgrounds()` in `flushEmailLogs()`. Applied Pass 1 defect resolutions (#10, #13, #19, #26, #27, #31).
+ 7. [`SyncRESchedules.js`](SyncRESchedules.js) — Added `_reParsedScheduleCache` memoization and single-read `getDataRange().getValues()` in `fetchREDataForDates()`. Applied Pass 1 defect resolutions (#17, #21).
+ 8. [`SyncSWR.js`](SyncSWR.js) — Wrapped unprotected `Utilities.parseDate` calls in `try/catch` and wrapped `syncSWRSpeakers()` in `executeWithLockAndRetry_()`.
+ 9. [`ExportSchedulePDF.js`](ExportSchedulePDF.js) — Applied Pass 1 defect resolutions (#20, #28, #30).
+ 10. [`README.md`](README.md), [`RELEASE_NOTES.md`](RELEASE_NOTES.md), [`AUDIT_SUMMARY.md`](AUDIT_SUMMARY.md), and [`ARCHITECTURAL_AUDIT_REPORT_2027.md`](ARCHITECTURAL_AUDIT_REPORT_2027.md) — Updated to `v2027.11.0` with full documentation of all audit findings and fixes.
 
-1. [`AppConfig.js`](AppConfig.js) — Updated 2027 Drive/Spreadsheet IDs, added `ESSC_SCHEDULE_ID`, `AppLogger`, `parseA1Coords_()`, and enhanced `executeWithLockAndRetry_()` with exponential backoff + jitter and `SpreadsheetApp.flush()`.
-2. [`Admin_Tools.js`](Admin_Tools.js) — Updated 2027 fallback IDs, hardened `onEdit()`, `isAdminUser()`, `assignWorkerExact()`, `getTeamsAndWorkers()`, `ensureWorkersSchema()`, `syncRosters()`, `commitWorkerImport()`, `setWorkerStatus()`, `renameWorker()`, `seedRoleConfigSheet()`, `auditUpcomingMonthMissingSlots()`, and `repair2027LiveSpreadsheets()`.
-3. [`Validation.js`](Validation.js) — Fixed `J`/`K` defaults in `ensureValidationConfigSheet()`, added `VALIDATION_TEAM_ALIASES_`, `inferCleaningFallbackTeams_()`, and `expandTeamSearchKeys_()`, batched `applyValidationForESSC()`, and wrapped validation entry points in `executeWithLockAndRetry_()`.
-4. [`GenerateESSC.js`](GenerateESSC.js) — Added `batchUpdateOrAppendConfigRows_()`, replaced `getRange(a1).getRow()/getColumn()` with `parseA1Coords_()`, made `extractRostersFromMasterWorkers()` dynamically header-driven, and hardened `assignESSCWorker()` with `LockService`, `SpreadsheetApp.flush()`, and `bumpQuarterVersion()`.
-5. [`GenerateMonthly.js`](GenerateMonthly.js) — Referenced `APP_CONFIG.AUTHORIZED_EDITORS` and `APP_CONFIG.BIBLE_PLAN_URL`, fixed `J`/`K` mapping in `createDefaultConfigSheet()`, and batched weekly cleaning header/date writes.
-6. [`Service_Reminders.js`](Service_Reminders.js) — Added `APP_CONFIG.DEFAULT_SERMON_TOPICS_ID` fallback in `getSermonTopicsSheetUrl()`, renamed `letterToColumnIndex` to `letterToColIdx0_()` to eliminate global namespace collision, and batched `setBackgrounds()` in `flushEmailLogs()`.
-7. [`SyncRESchedules.js`](SyncRESchedules.js) — Added `_reParsedScheduleCache` memoization and single-read `getDataRange().getValues()` in `fetchREDataForDates()`.
-8. [`SyncSWR.js`](SyncSWR.js) — Wrapped unprotected `Utilities.parseDate` calls in `try/catch` and wrapped `syncSWRSpeakers()` in `executeWithLockAndRetry_()`.
-9. [`README.md`](README.md), [`RELEASE_NOTES.md`](RELEASE_NOTES.md), [`AUDIT_SUMMARY.md`](AUDIT_SUMMARY.md), and [`ARCHITECTURAL_AUDIT_REPORT_2027.md`](ARCHITECTURAL_AUDIT_REPORT_2027.md) — Updated to `v2027.10.0` with full documentation of all audit findings and fixes.
+---
+
+## Section 6: Pass 1 Defect Inventory Resolution & QA Sign-Off (`v2027.11.0`)
+
+All 32 items identified in the Pass 1 Master Defect Inventory have been implemented and verified under strict regression controls:
+- **Critical Defects (IDs #1–#13)**: 13 / 13 Resolved ✅
+- **High Defects (IDs #14–#23)**: 10 / 10 Resolved ✅
+- **Medium Defects (IDs #24–#32)**: 9 / 9 Resolved ✅
+- **Overall Status**: **32 / 32 Resolved (100%)**
+- **QA & Regression Verdict**: **`[PASS - READY FOR PRODUCTION]`**
+
+For the line-by-line defect audit matrix, root causes, and verification notes, refer to Section 6 of [`AUDIT_SUMMARY.md`](AUDIT_SUMMARY.md).
+
